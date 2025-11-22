@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -148,6 +149,13 @@ func (cot *ChainOfThoughtEngine) Think(
 		zap.Int("steps", len(trace.ChainOfThought.Steps)),
 	)
 
+	// Serialize market data for storage
+	marketDataJSON, err := json.Marshal(marketData)
+	if err != nil {
+		logger.Warn("failed to marshal market data", zap.Error(err))
+		marketDataJSON = []byte("{}")
+	}
+	
 	// Convert to AgentDecision format
 	agentDecision := &models.AgentDecision{
 		AgentID:        cot.config.ID,
@@ -160,6 +168,7 @@ func (cot *ChainOfThoughtEngine) Think(
 		OnChainScore:   signals.OnChain.Score,
 		SentimentScore: signals.Sentiment.Score,
 		FinalScore:     float64(decision.Confidence),
+		MarketData:     string(marketDataJSON),
 		Executed:       false,
 	}
 

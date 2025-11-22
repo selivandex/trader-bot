@@ -273,9 +273,10 @@ func (r *Repository) GetAgentState(ctx context.Context, agentID string, symbol s
 
 // SaveDecision saves agent decision to database
 func (r *Repository) SaveDecision(ctx context.Context, decision *models.AgentDecision) error {
-	marketDataJSON, err := json.Marshal(decision.MarketData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal market data: %w", err)
+	// MarketData already serialized as JSON string in decision
+	marketDataJSON := decision.MarketData
+	if marketDataJSON == "" {
+		marketDataJSON = "{}"
 	}
 
 	query := `
@@ -287,7 +288,7 @@ func (r *Repository) SaveDecision(ctx context.Context, decision *models.AgentDec
 		RETURNING id, created_at
 	`
 
-	err = r.db.QueryRowContext(
+	err := r.db.QueryRowContext(
 		ctx, query,
 		decision.AgentID,
 		decision.Symbol,
