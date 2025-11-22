@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -40,8 +41,12 @@ const (
 type OrderType string
 
 const (
-	TypeMarket OrderType = "market"
-	TypeLimit  OrderType = "limit"
+	TypeMarket           OrderType = "market"
+	TypeLimit            OrderType = "limit"
+	TypeStopMarket       OrderType = "stop_market"        // Stop-loss market order
+	TypeStopLimit        OrderType = "stop_limit"         // Stop-loss limit order
+	TypeTakeProfitMarket OrderType = "take_profit_market" // Take-profit market order
+	TypeTakeProfitLimit  OrderType = "take_profit_limit"  // Take-profit limit order
 )
 
 // PositionSide represents long or short position
@@ -200,6 +205,8 @@ type MarketData struct {
 	FundingRate  decimal.Decimal      `json:"funding_rate"`
 	OpenInterest decimal.Decimal      `json:"open_interest"`
 	Indicators   *TechnicalIndicators `json:"indicators"`
+	NewsSummary  *NewsSummary         `json:"news_summary,omitempty"`
+	OnChainData  *OnChainSummary      `json:"onchain_data,omitempty"`
 	Timestamp    time.Time            `json:"timestamp"`
 }
 
@@ -248,4 +255,38 @@ type EnsembleDecision struct {
 	Consensus  *AIDecision   `json:"consensus"`
 	Agreement  bool          `json:"agreement"`
 	Confidence int           `json:"confidence"`
+}
+
+// StrategyParameters represents trading strategy parameters
+type StrategyParameters struct {
+	// Position sizing
+	MaxPositionPercent float64 `json:"max_position_percent"` // Maximum position size as % of balance
+	MaxLeverage        int     `json:"max_leverage"`         // Maximum leverage to use
+
+	// Risk management
+	StopLossPercent   float64 `json:"stop_loss_percent"`   // Stop loss distance from entry (%)
+	TakeProfitPercent float64 `json:"take_profit_percent"` // Take profit target from entry (%)
+
+	// Trading rules
+	MinConfidenceThreshold int `json:"min_confidence_threshold"` // Minimum AI confidence to execute (0-100)
+}
+
+// Validate checks if strategy parameters are valid
+func (p *StrategyParameters) Validate() error {
+	if p.MaxPositionPercent <= 0 || p.MaxPositionPercent > 100 {
+		return fmt.Errorf("invalid strategy parameter MaxPositionPercent: %v", p.MaxPositionPercent)
+	}
+	if p.MaxLeverage < 1 || p.MaxLeverage > 125 {
+		return fmt.Errorf("invalid strategy parameter MaxLeverage: %v", p.MaxLeverage)
+	}
+	if p.StopLossPercent <= 0 {
+		return fmt.Errorf("invalid strategy parameter StopLossPercent: %v", p.StopLossPercent)
+	}
+	if p.TakeProfitPercent <= 0 {
+		return fmt.Errorf("invalid strategy parameter TakeProfitPercent: %v", p.TakeProfitPercent)
+	}
+	if p.MinConfidenceThreshold < 0 || p.MinConfidenceThreshold > 100 {
+		return fmt.Errorf("invalid strategy parameter MinConfidenceThreshold: %v", p.MinConfidenceThreshold)
+	}
+	return nil
 }

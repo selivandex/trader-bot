@@ -159,12 +159,7 @@ func calculateRelevance(likes, retweets int) float64 {
 	return relevance
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
+// truncate moved to reddit.go to avoid duplication
 
 func min(a, b int) int {
 	if a < b {

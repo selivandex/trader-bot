@@ -57,17 +57,20 @@ This creates your user account in the system.
 You can trade **multiple pairs simultaneously**!
 
 Add first pair:
+
 ```
 /addpair BTC/USDT 1000
 ```
 
 Add more pairs:
+
 ```
 /addpair ETH/USDT 500
 /addpair SOL/USDT 300
 ```
 
 View all pairs:
+
 ```
 /listpairs
 ```
@@ -75,11 +78,13 @@ View all pairs:
 ### 4. Start Trading
 
 Start all pairs:
+
 ```
 /start_trading
 ```
 
 Or start specific pair:
+
 ```
 /start_trading BTC/USDT
 ```

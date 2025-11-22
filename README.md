@@ -10,7 +10,6 @@ An automated cryptocurrency trading bot for futures markets using AI models (Dee
 - **News & Sentiment Analysis**: Integrates Twitter, Forklog, and crypto news sources
 - **Risk Management**: Circuit breaker, position sizing, stop-loss/take-profit per user
 - **Telegram Control**: Full bot management through Telegram commands
-- **Backtesting**: Test strategies on historical data
 - **Paper Trading**: Simulate trading before going live
 - **PostgreSQL Storage**: Track all trades, decisions, and performance metrics per user
 
@@ -19,8 +18,7 @@ An automated cryptocurrency trading bot for futures markets using AI models (Dee
 ```
 trader/
 ├── cmd/
-│   ├── bot/              # Main trading bot
-│   └── backtest/         # Backtesting utility
+│   └── bot/              # Main trading bot
 ├── internal/
 │   ├── exchange/         # CCXT exchange adapters
 │   ├── ai/               # AI provider clients
@@ -28,7 +26,6 @@ trader/
 │   ├── indicators/       # Technical indicators (RSI, MACD, BB)
 │   ├── risk/             # Risk management
 │   ├── portfolio/        # Balance tracking
-│   ├── backtest/         # Backtesting engine
 │   └── telegram/         # Telegram bot
 ├── pkg/
 │   ├── models/           # Data structures
@@ -85,7 +82,6 @@ cp .env.example .env
 5. Build:
 ```bash
 go build -o bin/bot cmd/bot/main.go
-go build -o bin/backtest cmd/backtest/main.go
 ```
 
 ## Usage
@@ -106,12 +102,6 @@ The bot starts in paper trading mode by default (see `configs/config.yaml`).
 - `/stop` - Stop trading
 - `/resume` - Resume trading
 - `/stats` - Performance statistics
-
-### Backtesting
-
-```bash
-./bin/backtest --symbol BTC/USDT --from 2024-01-01 --to 2024-03-01
-```
 
 ### Live Trading
 
@@ -150,15 +140,19 @@ The bot implements multiple safety mechanisms:
 
 ## News Integration
 
-The bot aggregates news from multiple sources and analyzes market sentiment:
+A **background worker** continuously fetches and caches news from multiple sources:
 
-- **Twitter**: Real-time crypto sentiment from influential accounts
-- **Forklog**: Russian crypto news aggregator
-- **CoinDesk**: Leading crypto news (coming soon)
+- **Reddit**: r/CryptoCurrency, r/Bitcoin, r/ethereum (free, no API key)
+- **CoinDesk**: Professional crypto journalism (free)
+- **Twitter**: Real-time sentiment (optional, requires API key)
 
-Sentiment analysis uses crypto-specific keywords to determine overall market mood (bullish/bearish/neutral), which is factored into AI trading decisions.
+**How it works:**
+1. News worker runs in background (every 10 minutes)
+2. Fetches from all sources → analyzes sentiment → caches to PostgreSQL
+3. Trading engines read from cache (instant, <50ms)
+4. News sentiment included in AI decision-making
 
-See [News Integration Guide](docs/NEWS_INTEGRATION.md) for setup details.
+See [News Integration Guide](docs/NEWS_INTEGRATION.md) and [News Flow](docs/NEWS_FLOW.md) for details.
 
 ## Cost Estimation
 

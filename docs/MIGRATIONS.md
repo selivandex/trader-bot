@@ -15,11 +15,48 @@ Migration files follow the naming convention: `{version}_{description}.{up|down}
 
 Example:
 ```
-000001_init.up.sql          # Initial schema
-000001_init.down.sql        # Rollback initial schema
-000002_add_indexes.up.sql   # Add indexes
-000002_add_indexes.down.sql # Remove indexes
+000001_init.up.sql                     # Initial schema
+000001_init.down.sql                   # Rollback initial schema
+000002_news_cache.up.sql               # News caching system
+000002_news_cache.down.sql             # Remove news cache
+000003_sentiment_tracking.up.sql       # Sentiment tracking
+000003_sentiment_tracking.down.sql     # Remove sentiment tracking
+000004_onchain_monitoring.up.sql       # On-chain monitoring
+000004_onchain_monitoring.down.sql     # Remove on-chain monitoring
 ```
+
+## Current Migrations
+
+### 000001 - Initial Schema
+Core trading bot tables:
+- `users` - User accounts
+- `user_configs` - Trading configurations per user
+- `user_states` - Current bot state per user
+- `trades` - Trade history
+- `positions` - Open/closed positions
+- `ai_decisions` - AI decision tracking
+- `risk_events` - Risk management events
+- `performance_metrics` - Daily performance snapshots
+
+### 000002 - News Cache
+News aggregation system:
+- `news_items` - Cached news with sentiment analysis
+- `recent_news` view - Last 24h relevant news
+- `cleanup_old_news()` function - Auto-cleanup (7 days retention)
+
+### 000003 - Sentiment Tracking
+Advanced sentiment analysis:
+- `sentiment_snapshots` - Historical sentiment (5-min intervals)
+- `sentiment_trends` view - Hourly trends
+- `high_impact_news` view - Market-moving events (impact ≥ 7)
+- `get_current_sentiment()` function - Real-time aggregated sentiment
+
+### 000004 - On-Chain Monitoring
+Blockchain activity tracking:
+- `whale_transactions` - Large transfers (>$100k)
+- `exchange_flows` - Exchange inflow/outflow tracking
+- `onchain_metrics` - Network activity metrics
+- Views: `recent_whale_activity`, `exchange_flow_summary`, `onchain_alerts`
 
 ## Automatic Migrations
 

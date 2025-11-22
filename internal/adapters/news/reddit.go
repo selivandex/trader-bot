@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -145,7 +146,7 @@ func (r *RedditProvider) fetchSubreddit(ctx context.Context, subreddit string, l
 			PublishedAt: time.Unix(int64(post.CreatedUTC), 0),
 			Sentiment:   sentiment,
 			Relevance:   relevance,
-			Keywords:    keywords,
+			Keywords:    []string{}, // Will be filled by aggregator
 		})
 	}
 	
@@ -181,8 +182,6 @@ func (r *RedditProvider) isRelevant(text string, keywords []string) bool {
 	
 	return false
 }
-
-import "strings"
 
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {

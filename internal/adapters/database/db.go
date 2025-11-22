@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 
@@ -13,18 +14,18 @@ import (
 	"github.com/alexanderselivanov/trader/pkg/logger"
 )
 
-// DB wraps database connection
+// DB wraps database connection (now using sqlx)
 type DB struct {
-	conn *sql.DB
+	conn *sqlx.DB
 }
 
 // New creates new database connection
 func New(cfg *config.DatabaseConfig) (*DB, error) {
 	dsn := cfg.GetDSN()
 
-	conn, err := sql.Open("postgres", dsn)
+	conn, err := sqlx.Connect("postgres", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	// Set connection pool parameters
@@ -55,8 +56,13 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// Conn returns underlying database connection
+// Conn returns underlying *sql.DB connection (for migrations and legacy code)
 func (db *DB) Conn() *sql.DB {
+	return db.conn.DB
+}
+
+// DB returns sqlx.DB for modern code
+func (db *DB) DB() *sqlx.DB {
 	return db.conn
 }
 
@@ -68,6 +74,11 @@ func (db *DB) Ping() error {
 // Begin starts a new transaction
 func (db *DB) Begin() (*sql.Tx, error) {
 	return db.conn.Begin()
+}
+
+// BeginTxx starts a new sqlx transaction
+func (db *DB) BeginTxx(ctx context.Context, opts *sql.TxOptions) (*sqlx.Tx, error) {
+	return db.conn.BeginTxx(ctx, opts)
 }
 
 // Health checks database health

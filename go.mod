@@ -29,6 +29,7 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
+	github.com/jmoiron/sqlx v1.4.0 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect

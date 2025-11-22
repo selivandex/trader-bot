@@ -5,16 +5,21 @@ import (
 	"time"
 
 	"github.com/alexanderselivanov/trader/internal/adapters/config"
+	"github.com/alexanderselivanov/trader/pkg/logger"
 )
 
 func TestCircuitBreaker_RecordTrade(t *testing.T) {
+	// Initialize logger for tests
+	logger.Init("error", "")
+	
 	cfg := &config.RiskConfig{
 		MaxConsecutiveLosses:   3,
 		MaxDailyLossPercent:    5.0,
 		CircuitBreakerCooldown: 1 * time.Hour,
 	}
 	
-	cb := NewCircuitBreaker(cfg)
+	// Use nil repository for testing (no DB persistence needed)
+	cb := NewCircuitBreaker(cfg, nil, 1)
 	initialBalance := 1000.0
 	
 	// Test consecutive losses
@@ -71,13 +76,17 @@ func TestCircuitBreaker_RecordTrade(t *testing.T) {
 }
 
 func TestCircuitBreaker_Cooldown(t *testing.T) {
+	// Initialize logger for tests
+	logger.Init("error", "")
+	
 	cfg := &config.RiskConfig{
 		MaxConsecutiveLosses:   2,
 		MaxDailyLossPercent:    10.0,
 		CircuitBreakerCooldown: 100 * time.Millisecond,
 	}
 	
-	cb := NewCircuitBreaker(cfg)
+	// Use nil repository for testing (no DB persistence needed)
+	cb := NewCircuitBreaker(cfg, nil, 1)
 	
 	// Trigger circuit breaker
 	cb.RecordTrade(-10, 1000)

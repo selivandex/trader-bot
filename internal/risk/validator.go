@@ -38,8 +38,9 @@ func (v *Validator) ValidateDecision(decision *models.AIDecision, marketData *mo
 	case models.ActionHold:
 		// Hold action always valid
 	case models.ActionScaleIn, models.ActionScaleOut:
-		if decision.Size.Float64() <= 0 {
-			return fmt.Errorf("invalid size for scale action: %.8f", decision.Size.Float64())
+		size := models.ToFloat64(decision.Size)
+		if size <= 0 {
+			return fmt.Errorf("invalid size for scale action: %.8f", size)
 		}
 	default:
 		return fmt.Errorf("unknown action: %s", decision.Action)
@@ -50,40 +51,44 @@ func (v *Validator) ValidateDecision(decision *models.AIDecision, marketData *mo
 
 // validateOpenAction validates parameters for opening new position
 func (v *Validator) validateOpenAction(decision *models.AIDecision, marketData *models.MarketData) error {
-	if decision.Size.Float64() <= 0 {
-		return fmt.Errorf("invalid position size: %.8f", decision.Size.Float64())
+	size := models.ToFloat64(decision.Size)
+	stopLoss := models.ToFloat64(decision.StopLoss)
+	takeProfit := models.ToFloat64(decision.TakeProfit)
+	
+	if size <= 0 {
+		return fmt.Errorf("invalid position size: %.8f", size)
 	}
 
-	if decision.StopLoss.Float64() <= 0 {
+	if stopLoss <= 0 {
 		return fmt.Errorf("stop loss not set")
 	}
 
-	if decision.TakeProfit.Float64() <= 0 {
+	if takeProfit <= 0 {
 		return fmt.Errorf("take profit not set")
 	}
 
-	currentPrice := marketData.Ticker.Last.Float64()
+	currentPrice := models.ToFloat64(marketData.Ticker.Last)
 
 	// Validate stop loss and take profit placement
 	if decision.Action == models.ActionOpenLong {
-		if decision.StopLoss.Float64() >= currentPrice {
-			return fmt.Errorf("invalid stop loss for long: %.2f (current price: %.2f)", decision.StopLoss.Float64(), currentPrice)
+		if stopLoss >= currentPrice {
+			return fmt.Errorf("invalid stop loss for long: %.2f (current price: %.2f)", stopLoss, currentPrice)
 		}
-		if decision.TakeProfit.Float64() <= currentPrice {
-			return fmt.Errorf("invalid take profit for long: %.2f (current price: %.2f)", decision.TakeProfit.Float64(), currentPrice)
+		if takeProfit <= currentPrice {
+			return fmt.Errorf("invalid take profit for long: %.2f (current price: %.2f)", takeProfit, currentPrice)
 		}
 	} else if decision.Action == models.ActionOpenShort {
-		if decision.StopLoss.Float64() <= currentPrice {
-			return fmt.Errorf("invalid stop loss for short: %.2f (current price: %.2f)", decision.StopLoss.Float64(), currentPrice)
+		if stopLoss <= currentPrice {
+			return fmt.Errorf("invalid stop loss for short: %.2f (current price: %.2f)", stopLoss, currentPrice)
 		}
-		if decision.TakeProfit.Float64() >= currentPrice {
-			return fmt.Errorf("invalid take profit for short: %.2f (current price: %.2f)", decision.TakeProfit.Float64(), currentPrice)
+		if takeProfit >= currentPrice {
+			return fmt.Errorf("invalid take profit for short: %.2f (current price: %.2f)", takeProfit, currentPrice)
 		}
 	}
 
 	// Check if stop loss and take profit are too close (unrealistic)
-	slPercent := abs(currentPrice-decision.StopLoss.Float64()) / currentPrice * 100
-	tpPercent := abs(currentPrice-decision.TakeProfit.Float64()) / currentPrice * 100
+	slPercent := absFloat(currentPrice-stopLoss) / currentPrice * 100
+	tpPercent := absFloat(currentPrice-takeProfit) / currentPrice * 100
 
 	if slPercent < 0.5 {
 		return fmt.Errorf("stop loss too close: %.2f%%", slPercent)
@@ -106,7 +111,7 @@ func (v *Validator) validateOpenAction(decision *models.AIDecision, marketData *
 func (v *Validator) ValidateMarketConditions(marketData *models.MarketData) error {
 	// Check bid-ask spread (high spread = low liquidity)
 	ticker := marketData.Ticker
-	spread := (ticker.Ask.Float64() - ticker.Bid.Float64()) / ticker.Last.Float64() * 100
+	spread := (models.ToFloat64(ticker.Ask) - models.ToFloat64(ticker.Bid)) / models.ToFloat64(ticker.Last) * 100
 
 	if spread > v.maxSlippage {
 		return fmt.Errorf("spread too wide: %.3f%% (max %.3f%%)", spread, v.maxSlippage)
@@ -120,7 +125,7 @@ func (v *Validator) ValidateMarketConditions(marketData *models.MarketData) erro
 	// Check extreme volatility (using Bollinger Bands width)
 	if marketData.Indicators != nil && marketData.Indicators.BollingerBands != nil {
 		bb := marketData.Indicators.BollingerBands
-		bbWidth := (bb.Upper.Float64() - bb.Lower.Float64()) / bb.Middle.Float64() * 100
+		bbWidth := (models.ToFloat64(bb.Upper) - models.ToFloat64(bb.Lower)) / models.ToFloat64(bb.Middle) * 100
 
 		if bbWidth > 10.0 {
 			return fmt.Errorf("extreme volatility detected: BB width %.2f%%", bbWidth)
@@ -164,30 +169,34 @@ func (v *Validator) CheckDrawdown(currentEquity, peakEquity, maxDrawdownPercent 
 
 // SanityCheck performs basic sanity checks on decision
 func (v *Validator) SanityCheck(decision *models.AIDecision, currentPrice float64) error {
+	stopLoss := models.ToFloat64(decision.StopLoss)
+	takeProfit := models.ToFloat64(decision.TakeProfit)
+	size := models.ToFloat64(decision.Size)
+	
 	// Check if prices are in reasonable range
-	if decision.StopLoss.Float64() > 0 {
-		slDiff := abs(currentPrice-decision.StopLoss.Float64()) / currentPrice * 100
+	if stopLoss > 0 {
+		slDiff := absFloat(currentPrice-stopLoss) / currentPrice * 100
 		if slDiff > 50 {
 			return fmt.Errorf("stop loss too far from current price: %.2f%%", slDiff)
 		}
 	}
 
-	if decision.TakeProfit.Float64() > 0 {
-		tpDiff := abs(currentPrice-decision.TakeProfit.Float64()) / currentPrice * 100
+	if takeProfit > 0 {
+		tpDiff := absFloat(currentPrice-takeProfit) / currentPrice * 100
 		if tpDiff > 50 {
 			return fmt.Errorf("take profit too far from current price: %.2f%%", tpDiff)
 		}
 	}
 
 	// Check if size is reasonable
-	if decision.Size.Float64() > 100 {
-		return fmt.Errorf("position size seems unrealistic: %.2f", decision.Size.Float64())
+	if size > 100 {
+		return fmt.Errorf("position size seems unrealistic: %.2f", size)
 	}
 
 	return nil
 }
 
-func abs(x float64) float64 {
+func absFloat(x float64) float64 {
 	if x < 0 {
 		return -x
 	}

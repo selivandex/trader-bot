@@ -1,4 +1,4 @@
-.PHONY: build test run backtest clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate db-create db-create-test db-drop db-drop-test db-reset db-setup help
+.PHONY: build test run clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate telegram-webhook-set telegram-webhook-delete telegram-webhook-info db-create db-create-test db-drop db-drop-test db-reset db-setup help
 
 # Default target - show help
 .DEFAULT_GOAL := help
@@ -26,10 +26,9 @@ help:
 	@echo "  make migrate-force      - Force migration version (⚠️  use carefully!)"
 	@echo ""
 	@echo "🏗️  Build & Run:"
-	@echo "  make build              - Build bot and backtest binaries"
+	@echo "  make build              - Build bot binary"
 	@echo "  make run                - Run trading bot"
 	@echo "  make paper              - Run in paper trading mode"
-	@echo "  make backtest           - Run backtesting"
 	@echo ""
 	@echo "🧪 Testing:"
 	@echo "  make test               - Run unit tests"
@@ -46,12 +45,11 @@ help:
 	@echo ""
 	@echo "📚 Documentation: docs/MIGRATIONS.md"
 
-# Build binaries
+# Build binary
 build:
-	@echo "Building binaries..."
+	@echo "Building binary..."
 	@mkdir -p bin
 	go build -o bin/bot cmd/bot/main.go
-	go build -o bin/backtest cmd/backtest/main.go
 
 # Run unit tests only (no database)
 test:
@@ -96,10 +94,6 @@ test-pkg:
 run:
 	@mkdir -p logs
 	go run cmd/bot/main.go
-
-# Run backtest
-backtest:
-	go run cmd/backtest/main.go
 
 # Clean build artifacts
 clean:
@@ -229,6 +223,24 @@ paper:
 	@echo "Starting paper trading mode..."
 	@mkdir -p logs
 	MODE=paper go run cmd/bot/main.go
+
+# Telegram webhook commands
+telegram-webhook:
+	@echo "🔗 Setting Telegram webhook..."
+	@if [ -z "$(TELEGRAM_BOT_TOKEN)" ]; then \
+		echo "❌ Error: TELEGRAM_BOT_TOKEN not set"; \
+		echo "Usage: TELEGRAM_BOT_TOKEN=your_token WEBHOOK_URL=https://your-domain.com make telegram-webhook-set"; \
+		exit 1; \
+	fi; \
+	if [ -z "$(WEBHOOK_URL)" ]; then \
+		echo "❌ Error: WEBHOOK_URL not set"; \
+		echo "Usage: TELEGRAM_BOT_TOKEN=your_token WEBHOOK_URL=https://your-domain.com make telegram-webhook-set"; \
+		exit 1; \
+	fi; \
+	curl -X POST "https://api.telegram.org/bot$(TELEGRAM_BOT_TOKEN)/setWebhook" \
+		-H "Content-Type: application/json" \
+		-d '{"url":"$(WEBHOOK_URL)/telegram/webhook","drop_pending_updates":true}' | jq; \
+	echo "✅ Webhook set to: $(WEBHOOK_URL)/telegram/webhook"
 
 # Docker commands
 docker-build:

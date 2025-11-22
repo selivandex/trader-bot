@@ -18,3 +18,12 @@ func MustFloat64(d decimal.Decimal) float64 {
 	return f
 }
 
+// DecimalFromString creates decimal from string
+func DecimalFromString(s string) decimal.Decimal {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return decimal.Zero
+	}
+	return d
+}
+

@@ -2,7 +2,11 @@ package ai
 
 import (
 	"context"
+	"fmt"
 
+	"go.uber.org/zap"
+
+	"github.com/alexanderselivanov/trader/pkg/logger"
 	"github.com/alexanderselivanov/trader/pkg/models"
 )
 
@@ -10,6 +14,9 @@ import (
 type Provider interface {
 	// Analyze analyzes trading prompt and returns decision
 	Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error)
+	
+	// EvaluateNews evaluates news item and updates its sentiment/impact scores
+	EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error
 	
 	// GetName returns provider name
 	GetName() string
@@ -162,12 +169,4 @@ func (e *Ensemble) GetTotalCost() float64 {
 	}
 	return cost
 }
-
-import (
-	"fmt"
-	
-	"go.uber.org/zap"
-	
-	"github.com/alexanderselivanov/trader/pkg/logger"
-)
 

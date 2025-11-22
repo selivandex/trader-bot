@@ -48,7 +48,8 @@ func TestTradingFlow(t *testing.T) {
 			t.Fatalf("Failed to fetch ticker: %v", err)
 		}
 
-		if ticker.Last.Float64() <= 0 {
+		price, _ := ticker.Last.Float64()
+		if price <= 0 {
 			t.Error("Ticker price should be positive")
 		}
 	})
@@ -124,8 +125,9 @@ func TestTradingFlow(t *testing.T) {
 			t.Fatalf("Failed to create order: %v", err)
 		}
 
-		if order.Filled.Float64() != 0.01 {
-			t.Errorf("Expected filled 0.01, got %.4f", order.Filled.Float64())
+		filled, _ := order.Filled.Float64()
+		if filled != 0.01 {
+			t.Errorf("Expected filled 0.01, got %.4f", filled)
 		}
 
 		// Check position created
@@ -148,6 +150,14 @@ type MockAIProvider struct {
 
 func (m *MockAIProvider) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error) {
 	return m.decision, nil
+}
+
+func (m *MockAIProvider) EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error {
+	// Mock implementation - just set some default values
+	newsItem.Sentiment = 0.0 // neutral sentiment
+	newsItem.Relevance = 0.5
+	newsItem.Impact = 5 // medium impact
+	return nil
 }
 
 func (m *MockAIProvider) GetName() string {

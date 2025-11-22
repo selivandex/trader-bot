@@ -411,12 +411,6 @@ docker-compose up -d
 - Mock exchange & AI
 - Test component interactions
 
-**Backtesting:**
-
-- Historical data
-- Simulate full strategy
-- Validate before live trading
-
 **Paper Trading:**
 
 - Real-time data

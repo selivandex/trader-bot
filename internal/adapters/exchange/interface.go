@@ -2,6 +2,9 @@ package exchange
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/alexanderselivanov/trader/pkg/models"
@@ -78,12 +81,12 @@ func (f *Factory) Close() error {
 
 // MockExchange implements Exchange interface for testing and paper trading
 type MockExchange struct {
-	name            string
-	balance         *models.Balance
-	positions       map[string]*models.Position
-	orders          map[string]*models.Order
-	lastPrice       float64
-	priceGenerator  func() float64
+	name           string
+	balance        *models.Balance
+	positions      map[string]*models.Position
+	orders         map[string]*models.Order
+	lastPrice      float64
+	priceGenerator func() float64
 }
 
 // NewMockExchange creates new mock exchange
@@ -120,7 +123,7 @@ func (m *MockExchange) GetName() string {
 func (m *MockExchange) FetchTicker(ctx context.Context, symbol string) (*models.Ticker, error) {
 	price := m.priceGenerator()
 	m.lastPrice = price
-	
+
 	return &models.Ticker{
 		Symbol:    symbol,
 		Last:      models.NewDecimal(price),
@@ -137,14 +140,14 @@ func (m *MockExchange) FetchTicker(ctx context.Context, symbol string) (*models.
 func (m *MockExchange) FetchOHLCV(ctx context.Context, symbol, timeframe string, limit int) ([]models.Candle, error) {
 	candles := make([]models.Candle, limit)
 	basePrice := m.lastPrice
-	
+
 	for i := 0; i < limit; i++ {
 		// Generate realistic candle
 		open := basePrice * (1.0 + (rand.Float64()-0.5)*0.02)
 		close := open * (1.0 + (rand.Float64()-0.5)*0.03)
 		high := max(open, close) * (1.0 + rand.Float64()*0.01)
 		low := min(open, close) * (1.0 - rand.Float64()*0.01)
-		
+
 		candles[i] = models.Candle{
 			Timestamp: time.Now().Add(-time.Duration(limit-i) * parseDuration(timeframe)),
 			Open:      models.NewDecimal(open),
@@ -153,23 +156,23 @@ func (m *MockExchange) FetchOHLCV(ctx context.Context, symbol, timeframe string,
 			Close:     models.NewDecimal(close),
 			Volume:    models.NewDecimal(100.0 + rand.Float64()*50),
 		}
-		
+
 		basePrice = close
 	}
-	
+
 	return candles, nil
 }
 
 func (m *MockExchange) FetchOrderBook(ctx context.Context, symbol string, depth int) (*models.OrderBook, error) {
 	price := m.lastPrice
-	
+
 	bids := make([]models.OrderBookItem, depth)
 	asks := make([]models.OrderBookItem, depth)
-	
+
 	for i := 0; i < depth; i++ {
 		bidPrice := price * (1.0 - float64(i+1)*0.0001)
 		askPrice := price * (1.0 + float64(i+1)*0.0001)
-		
+
 		bids[i] = models.OrderBookItem{
 			Price:  models.NewDecimal(bidPrice),
 			Amount: models.NewDecimal(1.0 + rand.Float64()*5),
@@ -179,7 +182,7 @@ func (m *MockExchange) FetchOrderBook(ctx context.Context, symbol string, depth 
 			Amount: models.NewDecimal(1.0 + rand.Float64()*5),
 		}
 	}
-	
+
 	return &models.OrderBook{
 		Symbol:    symbol,
 		Bids:      bids,
@@ -219,13 +222,13 @@ func (m *MockExchange) FetchPosition(ctx context.Context, symbol string) (*model
 
 func (m *MockExchange) CreateOrder(ctx context.Context, symbol string, orderType models.OrderType, side models.OrderSide, amount, price float64) (*models.Order, error) {
 	orderID := fmt.Sprintf("mock_%d", time.Now().UnixNano())
-	
+
 	// Simulate order execution
 	execPrice := m.lastPrice
 	if price > 0 && orderType == models.TypeLimit {
 		execPrice = price
 	}
-	
+
 	order := &models.Order{
 		ID:          orderID,
 		Symbol:      symbol,
@@ -240,18 +243,18 @@ func (m *MockExchange) CreateOrder(ctx context.Context, symbol string, orderType
 		FeeCurrency: "USDT",
 		Timestamp:   time.Now(),
 	}
-	
+
 	m.orders[orderID] = order
-	
+
 	// Update position
 	m.updatePosition(symbol, side, amount, execPrice)
-	
+
 	return order, nil
 }
 
 func (m *MockExchange) updatePosition(symbol string, side models.OrderSide, amount, price float64) {
 	pos, exists := m.positions[symbol]
-	
+
 	if !exists {
 		// New position
 		positionSide := models.PositionLong
@@ -259,7 +262,7 @@ func (m *MockExchange) updatePosition(symbol string, side models.OrderSide, amou
 			positionSide = models.PositionShort
 			amount = -amount
 		}
-		
+
 		m.positions[symbol] = &models.Position{
 			Symbol:        symbol,
 			Side:          positionSide,
@@ -273,15 +276,15 @@ func (m *MockExchange) updatePosition(symbol string, side models.OrderSide, amou
 		}
 		return
 	}
-	
+
 	// Close or modify existing position
-	currentSize := pos.Size.Float64()
+	currentSize, _ := pos.Size.Float64()
 	if side == models.SideSell {
 		amount = -amount
 	}
-	
+
 	newSize := currentSize + amount
-	
+
 	if abs(newSize) < 0.0001 {
 		// Position closed
 		delete(m.positions, symbol)
@@ -289,7 +292,8 @@ func (m *MockExchange) updatePosition(symbol string, side models.OrderSide, amou
 		pos.Size = models.NewDecimal(newSize)
 		pos.CurrentPrice = models.NewDecimal(price)
 		// Recalculate unrealized PnL
-		pnl := (price - pos.EntryPrice.Float64()) * newSize
+		entryPrice, _ := pos.EntryPrice.Float64()
+		pnl := (price - entryPrice) * newSize
 		pos.UnrealizedPnL = models.NewDecimal(pnl)
 	}
 }
@@ -336,12 +340,6 @@ func (m *MockExchange) Close() error {
 }
 
 // Helper functions
-import (
-	"fmt"
-	"math/rand"
-	"strings"
-	"time"
-)
 
 func parseDuration(timeframe string) time.Duration {
 	// Parse timeframe like "1m", "5m", "1h", "1d"
@@ -389,4 +387,3 @@ func abs(x float64) float64 {
 	}
 	return x
 }
-

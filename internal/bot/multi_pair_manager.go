@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
 
 	"github.com/alexanderselivanov/trader/internal/adapters/ai"
@@ -42,7 +43,7 @@ func NewMultiPairManager(
 	newsAggregator *news.Aggregator,
 ) *MultiPairManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &MultiPairManager{
 		db:             db,
 		userRepo:       users.NewRepository(db),
@@ -58,13 +59,13 @@ func NewMultiPairManager(
 // Start starts the multi-pair bot manager
 func (m *MultiPairManager) Start(ctx context.Context) error {
 	logger.Info("multi-pair bot manager starting...")
-	
+
 	// Load all trading pairs
 	pairs, err := m.userRepo.GetAllTradingPairs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load trading pairs: %w", err)
 	}
-	
+
 	// Start bots for each pair
 	for _, pair := range pairs {
 		if err := m.StartUserPairBot(ctx, pair.UserID, pair.Symbol); err != nil {
@@ -75,15 +76,15 @@ func (m *MultiPairManager) Start(ctx context.Context) error {
 			)
 		}
 	}
-	
+
 	logger.Info("multi-pair bot manager started",
 		zap.Int("active_pairs", m.getTotalActiveBots()),
 	)
-	
+
 	// Monitor loop
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -98,83 +99,107 @@ func (m *MultiPairManager) Start(ctx context.Context) error {
 func (m *MultiPairManager) StartUserPairBot(ctx context.Context, userID int64, symbol string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Initialize user map if needed
 	if _, exists := m.userBots[userID]; !exists {
 		m.userBots[userID] = make(map[string]*UserBot)
 	}
-	
+
 	// Check if already running
 	if bot, exists := m.userBots[userID][symbol]; exists && bot.IsRunning {
 		return fmt.Errorf("bot already running for user %d, symbol %s", userID, symbol)
 	}
-	
+
 	// Load configuration
 	userConfig, err := m.userRepo.GetConfigBySymbol(ctx, userID, symbol)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	
+
 	if userConfig == nil {
 		return fmt.Errorf("config not found for symbol %s", symbol)
 	}
-	
+
 	// Create exchange adapter
 	var ex exchange.Exchange
-	exchangeConfig := &config.ExchangeConfig{
-		APIKey:  userConfig.APIKey,
-		Secret:  userConfig.APISecret,
-		Testnet: userConfig.Testnet,
-	}
+	// Extract config values
+	initialBalance := models.ToFloat64(userConfig.InitialBalance)
+	maxPositionPercent := models.ToFloat64(userConfig.MaxPositionPercent)
+	stopLossPercent := models.ToFloat64(userConfig.StopLossPercent)
+	takeProfitPercent := models.ToFloat64(userConfig.TakeProfitPercent)
 	
-	switch userConfig.Exchange {
-	case "binance":
-		ex, err = exchange.NewBinanceAdapter(exchangeConfig)
-	case "bybit":
-		ex, err = exchange.NewBybitAdapter(exchangeConfig)
-	default:
-		return fmt.Errorf("unsupported exchange: %s", userConfig.Exchange)
-	}
+	// Use MockExchange for now (real adapters are disabled)
+	// TODO: Enable real exchange adapters when needed
+	ex = exchange.NewMockExchange(userConfig.Exchange, initialBalance)
 	
-	if err != nil {
-		return fmt.Errorf("failed to create exchange: %w", err)
-	}
-	
+	// Real exchange adapters (currently disabled)
+	// exchangeConfig := &config.ExchangeConfig{
+	// 	APIKey:  userConfig.APIKey,
+	// 	Secret:  userConfig.APISecret,
+	// 	Testnet: userConfig.Testnet,
+	// }
+	// switch userConfig.Exchange {
+	// case "binance":
+	// 	ex, err = exchange.NewBinanceAdapter(exchangeConfig)
+	// case "bybit":
+	// 	ex, err = exchange.NewBybitAdapter(exchangeConfig)
+	// default:
+	// 	return fmt.Errorf("unsupported exchange: %s", userConfig.Exchange)
+	// }
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create exchange: %w", err)
+	// }
+
 	// Create trading config
 	tradingConfig := &config.TradingConfig{
 		Symbol:                    userConfig.Symbol,
-		InitialBalance:            models.ToFloat64(userConfig.InitialBalance),
-		MaxPositionPercent:        models.ToFloat64(userConfig.MaxPositionPercent),
+		InitialBalance:            initialBalance,
+		MaxPositionPercent:        maxPositionPercent,
 		MaxLeverage:               userConfig.MaxLeverage,
-		StopLossPercent:           models.ToFloat64(userConfig.StopLossPercent),
-		TakeProfitPercent:         models.ToFloat64(userConfig.TakeProfitPercent),
+		StopLossPercent:           stopLossPercent,
+		TakeProfitPercent:         takeProfitPercent,
 		ProfitWithdrawalThreshold: 1.1,
 	}
+
+	// Create strategy parameters from user config
+	strategyParams := &models.StrategyParameters{
+		MaxPositionPercent:     maxPositionPercent,
+		MaxLeverage:            userConfig.MaxLeverage,
+		StopLossPercent:        stopLossPercent,
+		TakeProfitPercent:      takeProfitPercent,
+		MinConfidenceThreshold: 70,
+	}
+
+	// Create repositories
+	sqlxDB := sqlx.NewDb(m.db.Conn(), "postgres")
+	riskRepo := risk.NewRepository(sqlxDB)
+	portfolioRepo := portfolio.NewRepository(sqlxDB)
 	
 	// Create risk manager
 	riskManager := &strategy.RiskManager{
-		CircuitBreaker: risk.NewCircuitBreaker(&m.globalConfig.Risk),
-		PositionSizer:  risk.NewPositionSizer(tradingConfig),
+		CircuitBreaker: risk.NewCircuitBreaker(&m.globalConfig.Risk, riskRepo, userID),
+		PositionSizer:  risk.NewPositionSizer(strategyParams),
 		Validator:      risk.NewValidator(),
 	}
-	
+
 	// Create portfolio tracker
-	portfolioTracker := portfolio.NewUserTracker(m.db, ex, userID, tradingConfig)
+	portfolioTracker := portfolio.NewUserTracker(portfolioRepo, ex, userID, tradingConfig)
 	if err := portfolioTracker.Initialize(ctx); err != nil {
 		return fmt.Errorf("failed to initialize portfolio: %w", err)
 	}
-	
+
 	// Create engine config
 	engineConfig := &config.Config{
 		Trading: *tradingConfig,
 		AI:      m.globalConfig.AI,
 		Risk:    m.globalConfig.Risk,
 	}
-	
+
 	// Create trading engine
 	engine := strategy.NewUserEngine(
 		userID,
 		engineConfig,
+		strategyParams,
 		ex,
 		m.aiEnsemble,
 		m.newsAggregator,
@@ -182,10 +207,10 @@ func (m *MultiPairManager) StartUserPairBot(ctx context.Context, userID int64, s
 		portfolioTracker,
 		nil,
 	)
-	
+
 	// Create bot context
 	botCtx, botCancel := context.WithCancel(m.ctx)
-	
+
 	userBot := &UserBot{
 		UserID:      userID,
 		Engine:      engine,
@@ -195,9 +220,17 @@ func (m *MultiPairManager) StartUserPairBot(ctx context.Context, userID int64, s
 		CancelFunc:  botCancel,
 		IsRunning:   true,
 	}
-	
+
 	m.userBots[userID][symbol] = userBot
-	
+
+	// Start trading session
+	sessionID, err := m.userRepo.StartSession(ctx, userID)
+	if err != nil {
+		logger.Warn("failed to start session", zap.Error(err))
+	} else {
+		logger.Debug("trading session started", zap.Int64("session_id", sessionID))
+	}
+
 	// Start engine
 	go func() {
 		logger.Info("starting pair bot",
@@ -205,7 +238,7 @@ func (m *MultiPairManager) StartUserPairBot(ctx context.Context, userID int64, s
 			zap.String("symbol", symbol),
 			zap.String("exchange", userConfig.Exchange),
 		)
-		
+
 		if err := engine.Start(botCtx); err != nil && err != context.Canceled {
 			logger.Error("pair bot error",
 				zap.Int64("user_id", userID),
@@ -214,12 +247,12 @@ func (m *MultiPairManager) StartUserPairBot(ctx context.Context, userID int64, s
 			)
 		}
 	}()
-	
+
 	logger.Info("pair bot started",
 		zap.Int64("user_id", userID),
 		zap.String("symbol", symbol),
 	)
-	
+
 	return nil
 }
 
@@ -227,39 +260,46 @@ func (m *MultiPairManager) StartUserPairBot(ctx context.Context, userID int64, s
 func (m *MultiPairManager) StopUserPairBot(ctx context.Context, userID int64, symbol string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	userBots, exists := m.userBots[userID]
 	if !exists {
 		return fmt.Errorf("no bots found for user %d", userID)
 	}
-	
+
 	bot, exists := userBots[symbol]
 	if !exists {
 		return fmt.Errorf("bot not found for symbol %s", symbol)
 	}
-	
+
 	if !bot.IsRunning {
 		return fmt.Errorf("bot not running")
 	}
-	
+
 	// Stop bot
 	bot.CancelFunc()
 	bot.IsRunning = false
 	bot.Engine.Stop()
 	bot.Exchange.Close()
-	
+
 	delete(userBots, symbol)
-	
+
 	// Update status
 	if err := m.userRepo.SetPairTradingStatus(ctx, userID, symbol, false); err != nil {
 		logger.Error("failed to update trading status", zap.Error(err))
 	}
-	
+
+	// Stop session if no more active pairs for user
+	if m.GetUserBotCount(userID) == 0 {
+		if err := m.userRepo.StopSession(ctx, userID); err != nil {
+			logger.Warn("failed to stop session", zap.Error(err))
+		}
+	}
+
 	logger.Info("pair bot stopped",
 		zap.Int64("user_id", userID),
 		zap.String("symbol", symbol),
 	)
-	
+
 	return nil
 }
 
@@ -267,32 +307,32 @@ func (m *MultiPairManager) StopUserPairBot(ctx context.Context, userID int64, sy
 func (m *MultiPairManager) StopAllUserBots(ctx context.Context, userID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	userBots, exists := m.userBots[userID]
 	if !exists {
 		return fmt.Errorf("no bots found for user %d", userID)
 	}
-	
+
 	for symbol, bot := range userBots {
 		if bot.IsRunning {
 			bot.CancelFunc()
 			bot.IsRunning = false
 			bot.Engine.Stop()
 			bot.Exchange.Close()
-			
+
 			if err := m.userRepo.SetPairTradingStatus(ctx, userID, symbol, false); err != nil {
 				logger.Error("failed to update trading status", zap.Error(err))
 			}
-			
+
 			logger.Info("stopped pair bot",
 				zap.Int64("user_id", userID),
 				zap.String("symbol", symbol),
 			)
 		}
 	}
-	
+
 	delete(m.userBots, userID)
-	
+
 	return nil
 }
 
@@ -300,12 +340,12 @@ func (m *MultiPairManager) StopAllUserBots(ctx context.Context, userID int64) er
 func (m *MultiPairManager) GetUserPairBot(userID int64, symbol string) (*UserBot, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if userBots, ok := m.userBots[userID]; ok {
 		bot, exists := userBots[symbol]
 		return bot, exists
 	}
-	
+
 	return nil, false
 }
 
@@ -313,7 +353,7 @@ func (m *MultiPairManager) GetUserPairBot(userID int64, symbol string) (*UserBot
 func (m *MultiPairManager) GetUserBotCount(userID int64) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if userBots, ok := m.userBots[userID]; ok {
 		count := 0
 		for _, bot := range userBots {
@@ -323,7 +363,7 @@ func (m *MultiPairManager) GetUserBotCount(userID int64) int {
 		}
 		return count
 	}
-	
+
 	return 0
 }
 
@@ -336,7 +376,7 @@ func (m *MultiPairManager) GetActiveBotCount() int {
 func (m *MultiPairManager) getTotalActiveBots() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	count := 0
 	for _, userBots := range m.userBots {
 		for _, bot := range userBots {
@@ -352,13 +392,13 @@ func (m *MultiPairManager) getTotalActiveBots() int {
 func (m *MultiPairManager) healthCheck(ctx context.Context) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	for userID, userBots := range m.userBots {
 		for symbol, bot := range userBots {
 			if !bot.IsRunning {
 				continue
 			}
-			
+
 			// Check if still supposed to be trading
 			config, err := m.userRepo.GetConfigBySymbol(ctx, userID, symbol)
 			if err != nil {
@@ -369,7 +409,7 @@ func (m *MultiPairManager) healthCheck(ctx context.Context) {
 				)
 				continue
 			}
-			
+
 			if config != nil && !config.IsTrading {
 				logger.Info("stopping bot (trading disabled)",
 					zap.Int64("user_id", userID),
@@ -384,23 +424,23 @@ func (m *MultiPairManager) healthCheck(ctx context.Context) {
 // shutdown gracefully shuts down all bots
 func (m *MultiPairManager) shutdown() error {
 	logger.Info("shutting down multi-pair bot manager...")
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	for userID, userBots := range m.userBots {
 		for symbol, bot := range userBots {
 			logger.Info("stopping pair bot",
 				zap.Int64("user_id", userID),
 				zap.String("symbol", symbol),
 			)
-			
+
 			bot.CancelFunc()
 			bot.Engine.Stop()
 			bot.Exchange.Close()
 		}
 	}
-	
+
 	logger.Info("multi-pair bot manager shut down complete")
 	return nil
 }
@@ -417,11 +457,11 @@ func (m *MultiPairManager) StartUserBot(ctx context.Context, userID int64) error
 	if err != nil {
 		return err
 	}
-	
+
 	if len(configs) == 0 {
 		return fmt.Errorf("no trading pairs configured")
 	}
-	
+
 	// Start first pair
 	return m.StartUserPairBot(ctx, userID, configs[0].Symbol)
 }
@@ -435,13 +475,12 @@ func (m *MultiPairManager) StopUserBot(ctx context.Context, userID int64) error 
 func (m *MultiPairManager) GetUserBot(userID int64) (interface{}, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if userBots, ok := m.userBots[userID]; ok {
 		for _, bot := range userBots {
 			return bot, true
 		}
 	}
-	
+
 	return nil, false
 }
-

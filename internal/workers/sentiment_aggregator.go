@@ -6,14 +6,24 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/database"
+	"github.com/alexanderselivanov/trader/internal/adapters/news"
 	"github.com/alexanderselivanov/trader/pkg/logger"
+	"github.com/alexanderselivanov/trader/pkg/models"
 )
 
-// SentimentAggregator calculates rolling sentiment metrics
+// SentimentAggregator calculates rolling sentiment metrics with impact weighting
 type SentimentAggregator struct {
-	db       *database.DB
-	interval time.Duration
+	repo      *Repository
+	newsRepo  *news.Repository
+	interval  time.Duration
+	cache     *SentimentCache
+}
+
+// SentimentCache caches current sentiment in memory
+type SentimentCache struct {
+	current   *models.AggregatedSentiment
+	trend     *models.SentimentTrend
+	updatedAt time.Time
 }
 
 // SentimentMetrics represents aggregated sentiment over time
@@ -29,10 +39,12 @@ type SentimentMetrics struct {
 }
 
 // NewSentimentAggregator creates new sentiment aggregator
-func NewSentimentAggregator(db *database.DB, interval time.Duration) *SentimentAggregator {
+func NewSentimentAggregator(repo *Repository, newsRepo *news.Repository, interval time.Duration) *SentimentAggregator {
 	return &SentimentAggregator{
-		db:       db,
+		repo:     repo,
+		newsRepo: newsRepo,
 		interval: interval,
+		cache:    &SentimentCache{},
 	}
 }
 
@@ -57,75 +69,93 @@ func (sa *SentimentAggregator) Start(ctx context.Context) error {
 	}
 }
 
-// calculateMetrics calculates rolling sentiment metrics
+// calculateMetrics calculates weighted sentiment with impact scores
 func (sa *SentimentAggregator) calculateMetrics(ctx context.Context) {
-	logger.Debug("calculating sentiment metrics...")
+	logger.Debug("calculating weighted sentiment metrics...")
 
-	// Get sentiment averages for different time windows
-	row := sa.db.Conn().QueryRowContext(ctx, `
-		SELECT 
-			COALESCE(AVG(sentiment) FILTER (WHERE published_at > NOW() - INTERVAL '1 hour'), 0) as last_hour,
-			COALESCE(AVG(sentiment) FILTER (WHERE published_at > NOW() - INTERVAL '6 hours'), 0) as last_6hours,
-			COALESCE(AVG(sentiment) FILTER (WHERE published_at > NOW() - INTERVAL '24 hours'), 0) as last_24hours
-		FROM news_items
-		WHERE published_at > NOW() - INTERVAL '24 hours'
-	`)
-
-	var lastHour, last6Hours, last24Hours float64
-	if err := row.Scan(&lastHour, &last6Hours, &last24Hours); err != nil {
-		logger.Error("failed to calculate sentiment metrics", zap.Error(err))
+	// Get weighted sentiment (impact-weighted)
+	weighted, err := sa.newsRepo.GetWeightedSentiment(ctx, 6*time.Hour)
+	if err != nil {
+		logger.Error("failed to calculate sentiment", zap.Error(err))
 		return
 	}
 
-	// Calculate momentum (sentiment is improving or declining)
-	momentum := lastHour - last6Hours
-
-	// Determine trend
-	var trend string
-	if momentum > 0.1 {
-		trend = "improving"
-	} else if momentum < -0.1 {
-		trend = "declining"
-	} else {
-		trend = "stable"
+	// Create aggregated sentiment
+	aggregated := &models.AggregatedSentiment{
+		Timestamp:        time.Now(),
+		BullishScore:     weighted.BullishScore,
+		BearishScore:     weighted.BearishScore,
+		NetSentiment:     weighted.NetSentiment,
+		NewsCount:        weighted.NewsCount,
+		HighImpactCount:  weighted.HighImpactCount,
+		AverageSentiment: weighted.AverageSentiment,
 	}
 
-	// Determine direction
-	var direction string
-	if last6Hours > 0.2 {
-		direction = "bullish"
-	} else if last6Hours < -0.2 {
-		direction = "bearish"
-	} else {
-		direction = "neutral"
+	// Get high impact news
+	highImpactNews, err := sa.newsRepo.GetHighImpactNews(ctx, 7, 24*time.Hour, 10)
+	if err == nil {
+		aggregated.HighImpactNews = highImpactNews
 	}
+
+	// Save snapshot to database
+	if err := sa.repo.SaveSentimentSnapshot(ctx, aggregated); err != nil {
+		logger.Error("failed to save sentiment snapshot", zap.Error(err))
+	}
+
+	// Update cache
+	sa.cache.current = aggregated
+	sa.cache.updatedAt = time.Now()
+
+	// Calculate trend
+	trend := sa.calculateTrend(ctx)
+	sa.cache.trend = trend
 
 	logger.Info("sentiment metrics calculated",
-		zap.Float64("1h_avg", lastHour),
-		zap.Float64("6h_avg", last6Hours),
-		zap.Float64("24h_avg", last24Hours),
-		zap.Float64("momentum", momentum),
-		zap.String("trend", trend),
-		zap.String("direction", direction),
+		zap.Float64("bullish_score", weighted.BullishScore),
+		zap.Float64("bearish_score", weighted.BearishScore),
+		zap.Float64("net_sentiment", weighted.NetSentiment),
+		zap.Int("news_count", weighted.NewsCount),
+		zap.Int("high_impact", weighted.HighImpactCount),
+		zap.String("trend", trend.Direction),
 	)
+}
+
+
+// calculateTrend calculates sentiment trend from recent snapshots
+func (sa *SentimentAggregator) calculateTrend(ctx context.Context) *models.SentimentTrend {
+	datapoints, err := sa.repo.GetRecentSentimentSnapshots(ctx, 12)
+	if err != nil || len(datapoints) < 2 {
+		return &models.SentimentTrend{Direction: "stable"}
+	}
+
+	current := datapoints[0]
+	previous := datapoints[1]
+	momentum := current - previous
+
+	direction := "stable"
+	if momentum > 5 {
+		direction = "improving"
+	} else if momentum < -5 {
+		direction = "declining"
+	}
+
+	return &models.SentimentTrend{
+		Current:    current,
+		Previous:   previous,
+		Direction:  direction,
+		Momentum:   momentum,
+		Datapoints: datapoints,
+	}
 }
 
 // GetMetrics returns current sentiment metrics
 func (sa *SentimentAggregator) GetMetrics(ctx context.Context) (*SentimentMetrics, error) {
-	row := sa.db.Conn().QueryRowContext(ctx, `
-		SELECT 
-			COALESCE(AVG(sentiment) FILTER (WHERE published_at > NOW() - INTERVAL '1 hour'), 0),
-			COALESCE(AVG(sentiment) FILTER (WHERE published_at > NOW() - INTERVAL '6 hours'), 0),
-			COALESCE(AVG(sentiment) FILTER (WHERE published_at > NOW() - INTERVAL '24 hours'), 0)
-		FROM news_items
-	`)
-
-	var lastHour, last6Hours, last24Hours float64
-	if err := row.Scan(&lastHour, &last6Hours, &last24Hours); err != nil {
+	ts, err := sa.newsRepo.GetSentimentTimeSeries(ctx)
+	if err != nil {
 		return nil, err
 	}
 
-	momentum := lastHour - last6Hours
+	momentum := ts.LastHour - ts.Last6Hours
 
 	var trend string
 	if momentum > 0.1 {
@@ -137,21 +167,21 @@ func (sa *SentimentAggregator) GetMetrics(ctx context.Context) (*SentimentMetric
 	}
 
 	var direction string
-	if last6Hours > 0.2 {
+	if ts.Last6Hours > 0.2 {
 		direction = "bullish"
-	} else if last6Hours < -0.2 {
+	} else if ts.Last6Hours < -0.2 {
 		direction = "bearish"
 	} else {
 		direction = "neutral"
 	}
 
 	return &SentimentMetrics{
-		CurrentSentiment:  lastHour,
+		CurrentSentiment:  ts.LastHour,
 		SentimentTrend:    trend,
 		SentimentMomentum: momentum,
-		LastHourAvg:       lastHour,
-		Last6HoursAvg:     last6Hours,
-		Last24HoursAvg:    last24Hours,
+		LastHourAvg:       ts.LastHour,
+		Last6HoursAvg:     ts.Last6Hours,
+		Last24HoursAvg:    ts.Last24Hours,
 		TrendDirection:    direction,
 		UpdatedAt:         time.Now(),
 	}, nil

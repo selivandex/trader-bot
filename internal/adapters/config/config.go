@@ -9,12 +9,13 @@ import (
 
 // Config represents application configuration
 type Config struct {
-	Mode TradingConfig `envconfig:"MODE"`
+	Mode TradingModeConfig `envconfig:""`
 
 	Exchanges ExchangesConfig `envconfig:"EXCHANGES"`
 	Trading   TradingConfig   `envconfig:"TRADING"`
 	AI        AIConfig        `envconfig:"AI"`
 	News      NewsConfig      `envconfig:"NEWS"`
+	OnChain   OnChainConfig   `envconfig:"ONCHAIN"`
 	Risk      RiskConfig      `envconfig:"RISK"`
 	Telegram  TelegramConfig  `envconfig:"TELEGRAM"`
 	Database  DatabaseConfig  `envconfig:"DATABASE"`
@@ -69,12 +70,22 @@ type AIProviderConfig struct {
 
 // NewsConfig represents news aggregation configuration
 type NewsConfig struct {
-	Enabled         bool     `envconfig:"NEWS_ENABLED" default:"true"`
-	TwitterAPIKey   string   `envconfig:"TWITTER_API_KEY" required:"false"`
-	TwitterEnabled  bool     `envconfig:"TWITTER_ENABLED" default:"false"`
-	RedditEnabled   bool     `envconfig:"REDDIT_ENABLED" default:"true"`
-	CoinDeskEnabled bool     `envconfig:"COINDESK_ENABLED" default:"true"`
-	Keywords        []string `envconfig:"NEWS_KEYWORDS" default:"bitcoin,btc,crypto,cryptocurrency,ethereum,eth"`
+	Enabled           bool     `envconfig:"NEWS_ENABLED" default:"true"`
+	TwitterAPIKey     string   `envconfig:"TWITTER_API_KEY" required:"false"`
+	TwitterEnabled    bool     `envconfig:"TWITTER_ENABLED" default:"false"`
+	RedditEnabled     bool     `envconfig:"REDDIT_ENABLED" default:"true"`
+	CoinDeskEnabled   bool     `envconfig:"COINDESK_ENABLED" default:"true"`
+	Keywords          []string `envconfig:"NEWS_KEYWORDS" default:"bitcoin,btc,crypto,cryptocurrency,ethereum,eth"`
+	EvaluatorProvider string   `envconfig:"NEWS_EVALUATOR_PROVIDER" default:"deepseek"` // deepseek, openai, claude, or none (single provider)
+	EvaluatorEnabled  bool     `envconfig:"NEWS_EVALUATOR_ENABLED" default:"true"`      // Use AI evaluation or fallback to keywords
+	EvaluatorEnsemble bool     `envconfig:"NEWS_EVALUATOR_ENSEMBLE" default:"false"`    // Use all enabled AI providers for consensus (more accurate)
+}
+
+// OnChainConfig represents on-chain monitoring configuration
+type OnChainConfig struct {
+	Enabled       bool   `envconfig:"ONCHAIN_ENABLED" default:"true"`
+	WhaleAlertKey string `envconfig:"WHALE_ALERT_API_KEY" required:"false"`
+	MinValueUSD   int    `envconfig:"ONCHAIN_MIN_VALUE_USD" default:"1000000"` // $1M minimum
 }
 
 // RiskConfig represents risk management parameters
@@ -191,6 +202,7 @@ func (c *DatabaseConfig) GetDSN() string {
 
 // IsPaperTrading returns true if bot is in paper trading mode
 func (c *Config) IsPaperTrading() bool {
+	// Mode is in TradingModeConfig which is embedded as Mode field
 	return c.Mode.Mode == "paper"
 }
 

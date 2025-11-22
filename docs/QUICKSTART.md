@@ -117,17 +117,11 @@ Open your Telegram bot and:
 
 ⚠️ **IMPORTANT**: Test before real money!
 
-### 1. Backtesting
-
-```bash
-./bin/backtest --symbol BTC/USDT --from 2024-01-01 --to 2024-03-01
-```
-
-### 2. Paper Trading
+### 1. Paper Trading
 
 Set `MODE=paper` in `.env` and run bot for at least 1 month.
 
-### 3. Monitor Results
+### 2. Monitor Results
 
 ```sql
 psql trader -c "SELECT * FROM user_overview;"

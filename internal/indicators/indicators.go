@@ -3,6 +3,8 @@ package indicators
 import (
 	"fmt"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/alexanderselivanov/trader/pkg/models"
 	"github.com/cinar/indicator"
 )
@@ -28,14 +30,18 @@ func (c *Calculator) Calculate(candles []models.Candle) (*models.TechnicalIndica
 	volumes := make([]float64, len(candles))
 
 	for i, candle := range candles {
-		closes[i] = candle.Close.Float64()
-		highs[i] = candle.High.Float64()
-		lows[i] = candle.Low.Float64()
-		volumes[i] = candle.Volume.Float64()
+		closes[i], _ = candle.Close.Float64()
+		highs[i], _ = candle.High.Float64()
+		lows[i], _ = candle.Low.Float64()
+		volumes[i], _ = candle.Volume.Float64()
 	}
 
-	// Calculate RSI
-	rsi14 := indicator.Rsi(14, closes)
+	// Calculate RSI (period 14)
+	_, rsi14 := indicator.Rsi(closes)
+	if len(rsi14) < 14 {
+		return nil, fmt.Errorf("insufficient RSI data")
+	}
+	rsi14 = rsi14[13:] // Skip first 13 values (warmup period)
 
 	// Calculate MACD
 	macdLine, signalLine := indicator.Macd(closes)
@@ -53,7 +59,7 @@ func (c *Calculator) Calculate(candles []models.Candle) (*models.TechnicalIndica
 	volumeRatio := currentVolume / volumeAvg
 
 	indicators := &models.TechnicalIndicators{
-		RSI: map[string]models.Decimal{
+		RSI: map[string]decimal.Decimal{
 			"14": models.NewDecimal(rsi14[len(rsi14)-1]),
 		},
 		MACD: &models.MACDIndicator{
@@ -99,10 +105,13 @@ func (c *Calculator) CalculateRSI(candles []models.Candle, period int) (float64,
 
 	closes := make([]float64, len(candles))
 	for i, candle := range candles {
-		closes[i] = candle.Close.Float64()
+		closes[i], _ = candle.Close.Float64()
 	}
 
-	rsi := indicator.Rsi(period, closes)
+	_, rsi := indicator.Rsi(closes)
+	if len(rsi) == 0 {
+		return 0, fmt.Errorf("RSI returned no data")
+	}
 	return rsi[len(rsi)-1], nil
 }
 
@@ -114,10 +123,13 @@ func (c *Calculator) CalculateEMA(candles []models.Candle, period int) (float64,
 
 	closes := make([]float64, len(candles))
 	for i, candle := range candles {
-		closes[i] = candle.Close.Float64()
+		closes[i], _ = candle.Close.Float64()
 	}
 
 	ema := indicator.Ema(period, closes)
+	if len(ema) == 0 {
+		return 0, fmt.Errorf("EMA calculation failed")
+	}
 	return ema[len(ema)-1], nil
 }
 
@@ -129,10 +141,13 @@ func (c *Calculator) CalculateSMA(candles []models.Candle, period int) (float64,
 
 	closes := make([]float64, len(candles))
 	for i, candle := range candles {
-		closes[i] = candle.Close.Float64()
+		closes[i], _ = candle.Close.Float64()
 	}
 
 	sma := indicator.Sma(period, closes)
+	if len(sma) == 0 {
+		return 0, fmt.Errorf("SMA calculation failed")
+	}
 	return sma[len(sma)-1], nil
 }
 
@@ -152,7 +167,7 @@ func (c *Calculator) DetectTrend(candles []models.Candle) (string, error) {
 		return "unknown", err
 	}
 
-	currentPrice := candles[len(candles)-1].Close.Float64()
+	currentPrice, _ := candles[len(candles)-1].Close.Float64()
 
 	if currentPrice > ema20 && ema20 > ema50 {
 		return "uptrend", nil
@@ -174,12 +189,15 @@ func (c *Calculator) CalculateVolatility(candles []models.Candle, period int) (f
 	closes := make([]float64, len(candles))
 
 	for i, candle := range candles {
-		highs[i] = candle.High.Float64()
-		lows[i] = candle.Low.Float64()
-		closes[i] = candle.Close.Float64()
+		highs[i], _ = candle.High.Float64()
+		lows[i], _ = candle.Low.Float64()
+		closes[i], _ = candle.Close.Float64()
 	}
 
-	atr := indicator.Atr(period, highs, lows, closes)
+	_, atr := indicator.Atr(period, highs, lows, closes)
+	if len(atr) == 0 {
+		return 0, fmt.Errorf("ATR returned no data")
+	}
 	return atr[len(atr)-1], nil
 }
 
@@ -191,7 +209,7 @@ func (c *Calculator) IsSupportLevel(candles []models.Candle, currentPrice float6
 
 	// Find recent lows
 	for i := len(candles) - 20; i < len(candles); i++ {
-		low := candles[i].Low.Float64()
+		low, _ := candles[i].Low.Float64()
 		diff := abs(currentPrice-low) / currentPrice
 
 		if diff < threshold {
@@ -210,7 +228,7 @@ func (c *Calculator) IsResistanceLevel(candles []models.Candle, currentPrice flo
 
 	// Find recent highs
 	for i := len(candles) - 20; i < len(candles); i++ {
-		high := candles[i].High.Float64()
+		high, _ := candles[i].High.Float64()
 		diff := abs(currentPrice-high) / currentPrice
 
 		if diff < threshold {

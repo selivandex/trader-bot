@@ -10,20 +10,20 @@ import (
 	"github.com/alexanderselivanov/trader/pkg/models"
 )
 
-// buildSystemPrompt creates system prompt for AI
-func buildSystemPrompt() string {
-	return `You are a professional cryptocurrency futures trader with expertise in technical analysis and risk management.
+// buildSystemPrompt creates system prompt for AI with strategy parameters
+func buildSystemPrompt(params *models.StrategyParameters) string {
+	return fmt.Sprintf(`You are a professional cryptocurrency futures trader with expertise in technical analysis and risk management.
 
 Your task is to analyze market data and provide trading decisions in strict JSON format.
 
 TRADING RULES:
-- Maximum position size: 30% of balance
-- Maximum leverage: 3x
-- Always set stop-loss at 2% from entry price
-- Take profit target: 4-6% from entry price
+- Maximum position size: %.0f%% of balance
+- Maximum leverage: %dx
+- Always set stop-loss at %.1f%% from entry price
+- Take profit target: %.1f%% from entry price
 - Consider funding rates when determining position direction
 - Never trade during extreme volatility or news events
-- Minimum confidence threshold: 70% to execute trade
+- Minimum confidence threshold: %d%% to execute trade
 
 DECISION ACTIONS:
 - HOLD: No action, wait for better setup
@@ -48,96 +48,160 @@ IMPORTANT:
 - Be conservative: when in doubt, choose HOLD
 - Always provide stop_loss and take_profit for OPEN actions
 - Consider multiple timeframes for confirmation
-- Pay attention to volume and funding rates`
+- Pay attention to volume and funding rates`,
+		params.MaxPositionPercent,
+		params.MaxLeverage,
+		params.StopLossPercent,
+		params.TakeProfitPercent,
+		params.MinConfidenceThreshold,
+	)
 }
 
 // buildUserPrompt creates user prompt from trading data
 func buildUserPrompt(prompt *models.TradingPrompt) string {
 	var sb strings.Builder
-	
+
 	// Current market state
 	sb.WriteString("=== MARKET DATA ===\n\n")
-	
+
 	if prompt.MarketData != nil && prompt.MarketData.Ticker != nil {
 		ticker := prompt.MarketData.Ticker
 		sb.WriteString(fmt.Sprintf("Symbol: %s\n", ticker.Symbol))
-		sb.WriteString(fmt.Sprintf("Current Price: $%.2f\n", ticker.Last.Float64()))
-		sb.WriteString(fmt.Sprintf("24h Change: %.2f%%\n", ticker.Change24h.Float64()))
-		sb.WriteString(fmt.Sprintf("24h High: $%.2f\n", ticker.High24h.Float64()))
-		sb.WriteString(fmt.Sprintf("24h Low: $%.2f\n", ticker.Low24h.Float64()))
-		sb.WriteString(fmt.Sprintf("24h Volume: $%.2f\n", ticker.Volume24h.Float64()))
-		sb.WriteString(fmt.Sprintf("Bid: $%.2f | Ask: $%.2f\n\n", ticker.Bid.Float64(), ticker.Ask.Float64()))
+		sb.WriteString(fmt.Sprintf("Current Price: $%.2f\n", models.ToFloat64(ticker.Last)))
+		sb.WriteString(fmt.Sprintf("24h Change: %.2f%%\n", models.ToFloat64(ticker.Change24h)))
+		sb.WriteString(fmt.Sprintf("24h High: $%.2f\n", models.ToFloat64(ticker.High24h)))
+		sb.WriteString(fmt.Sprintf("24h Low: $%.2f\n", models.ToFloat64(ticker.Low24h)))
+		sb.WriteString(fmt.Sprintf("24h Volume: $%.2f\n", models.ToFloat64(ticker.Volume24h)))
+		sb.WriteString(fmt.Sprintf("Bid: $%.2f | Ask: $%.2f\n\n", models.ToFloat64(ticker.Bid), models.ToFloat64(ticker.Ask)))
 	}
-	
+
 	// Technical indicators
 	if prompt.MarketData != nil && prompt.MarketData.Indicators != nil {
 		sb.WriteString("=== TECHNICAL INDICATORS ===\n\n")
 		ind := prompt.MarketData.Indicators
-		
+
 		if ind.RSI != nil {
 			sb.WriteString("RSI:\n")
 			for tf, val := range ind.RSI {
-				sb.WriteString(fmt.Sprintf("  %s: %.2f", tf, val.Float64()))
-				if val.Float64() > 70 {
+				rsiVal := models.ToFloat64(val)
+				sb.WriteString(fmt.Sprintf("  %s: %.2f", tf, rsiVal))
+				if rsiVal > 70 {
 					sb.WriteString(" (Overbought)\n")
-				} else if val.Float64() < 30 {
+				} else if rsiVal < 30 {
 					sb.WriteString(" (Oversold)\n")
 				} else {
 					sb.WriteString(" (Neutral)\n")
 				}
 			}
 		}
-		
+
 		if ind.MACD != nil {
-			sb.WriteString(fmt.Sprintf("\nMACD:\n"))
-			sb.WriteString(fmt.Sprintf("  MACD: %.2f\n", ind.MACD.MACD.Float64()))
-			sb.WriteString(fmt.Sprintf("  Signal: %.2f\n", ind.MACD.Signal.Float64()))
-			sb.WriteString(fmt.Sprintf("  Histogram: %.2f", ind.MACD.Histogram.Float64()))
-			if ind.MACD.Histogram.Float64() > 0 {
+			macd := models.ToFloat64(ind.MACD.MACD)
+			signal := models.ToFloat64(ind.MACD.Signal)
+			histogram := models.ToFloat64(ind.MACD.Histogram)
+
+			sb.WriteString("\nMACD:\n")
+			sb.WriteString(fmt.Sprintf("  MACD: %.2f\n", macd))
+			sb.WriteString(fmt.Sprintf("  Signal: %.2f\n", signal))
+			sb.WriteString(fmt.Sprintf("  Histogram: %.2f", histogram))
+			if histogram > 0 {
 				sb.WriteString(" (Bullish)\n")
 			} else {
 				sb.WriteString(" (Bearish)\n")
 			}
 		}
-		
+
 		if ind.BollingerBands != nil {
-			sb.WriteString(fmt.Sprintf("\nBollinger Bands:\n"))
-			sb.WriteString(fmt.Sprintf("  Upper: $%.2f\n", ind.BollingerBands.Upper.Float64()))
-			sb.WriteString(fmt.Sprintf("  Middle: $%.2f\n", ind.BollingerBands.Middle.Float64()))
-			sb.WriteString(fmt.Sprintf("  Lower: $%.2f\n", ind.BollingerBands.Lower.Float64()))
+			sb.WriteString("\nBollinger Bands:\n")
+			sb.WriteString(fmt.Sprintf("  Upper: $%.2f\n", models.ToFloat64(ind.BollingerBands.Upper)))
+			sb.WriteString(fmt.Sprintf("  Middle: $%.2f\n", models.ToFloat64(ind.BollingerBands.Middle)))
+			sb.WriteString(fmt.Sprintf("  Lower: $%.2f\n", models.ToFloat64(ind.BollingerBands.Lower)))
 		}
-		
+
 		if ind.Volume != nil {
-			sb.WriteString(fmt.Sprintf("\nVolume Analysis:\n"))
-			sb.WriteString(fmt.Sprintf("  Current: %.2f\n", ind.Volume.Current.Float64()))
-			sb.WriteString(fmt.Sprintf("  Average: %.2f\n", ind.Volume.Average.Float64()))
-			sb.WriteString(fmt.Sprintf("  Ratio: %.2fx", ind.Volume.Ratio.Float64()))
-			if ind.Volume.Ratio.Float64() > 1.5 {
+			current := models.ToFloat64(ind.Volume.Current)
+			average := models.ToFloat64(ind.Volume.Average)
+			ratio := models.ToFloat64(ind.Volume.Ratio)
+
+			sb.WriteString("\nVolume Analysis:\n")
+			sb.WriteString(fmt.Sprintf("  Current: %.2f\n", current))
+			sb.WriteString(fmt.Sprintf("  Average: %.2f\n", average))
+			sb.WriteString(fmt.Sprintf("  Ratio: %.2fx", ratio))
+			if ratio > 1.5 {
 				sb.WriteString(" (High volume)\n")
-			} else if ind.Volume.Ratio.Float64() < 0.5 {
+			} else if ratio < 0.5 {
 				sb.WriteString(" (Low volume)\n")
 			} else {
 				sb.WriteString(" (Normal volume)\n")
 			}
 		}
-		
+
 		sb.WriteString("\n")
 	}
-	
+
 	// Funding rate and open interest
 	if prompt.MarketData != nil {
 		sb.WriteString("=== FUTURES METRICS ===\n\n")
-		sb.WriteString(fmt.Sprintf("Funding Rate: %.4f%%", prompt.MarketData.FundingRate.Float64()*100))
-		if prompt.MarketData.FundingRate.Float64() > 0.01 {
+		fundingRate := models.ToFloat64(prompt.MarketData.FundingRate)
+		openInterest := models.ToFloat64(prompt.MarketData.OpenInterest)
+
+		sb.WriteString(fmt.Sprintf("Funding Rate: %.4f%%", fundingRate*100))
+		if fundingRate > 0.01 {
 			sb.WriteString(" (Longs pay shorts - bearish sentiment)\n")
-		} else if prompt.MarketData.FundingRate.Float64() < -0.01 {
+		} else if fundingRate < -0.01 {
 			sb.WriteString(" (Shorts pay longs - bullish sentiment)\n")
 		} else {
 			sb.WriteString(" (Neutral)\n")
 		}
-		sb.WriteString(fmt.Sprintf("Open Interest: $%.2f\n\n", prompt.MarketData.OpenInterest.Float64()))
+		sb.WriteString(fmt.Sprintf("Open Interest: $%.2f\n\n", openInterest))
 	}
-	
+
+	// On-chain data
+	if prompt.MarketData != nil && prompt.MarketData.OnChainData != nil {
+		onchain := prompt.MarketData.OnChainData
+		sb.WriteString("=== ON-CHAIN SIGNALS ===\n\n")
+
+		sb.WriteString(fmt.Sprintf("Whale Activity: *%s*\n", strings.ToUpper(onchain.WhaleActivity)))
+
+		netFlow, _ := onchain.NetExchangeFlow.Float64()
+		sb.WriteString(fmt.Sprintf("Exchange Flow: %s (%.2f BTC net)\n",
+			strings.ToUpper(onchain.ExchangeFlowDirection), netFlow))
+
+		if onchain.ExchangeFlowDirection == "inflow" {
+			sb.WriteString("⚠️ Large inflow to exchanges = potential selling pressure\n")
+		} else if onchain.ExchangeFlowDirection == "outflow" {
+			sb.WriteString("📈 Outflow from exchanges = accumulation (bullish)\n")
+		}
+
+		// High impact whale movements
+		if len(onchain.RecentWhaleMovements) > 0 {
+			sb.WriteString("\nRecent Whale Movements:\n")
+
+			count := 0
+			for _, whale := range onchain.RecentWhaleMovements {
+				if whale.ImpactScore >= 7 && count < 3 {
+					amountUSD, _ := whale.AmountUSD.Float64()
+					emoji := "⚠️"
+					if whale.TransactionType == "exchange_outflow" {
+						emoji = "📈"
+					} else if whale.TransactionType == "exchange_inflow" {
+						emoji = "📉"
+					}
+
+					ageMinutes := time.Since(whale.Timestamp).Minutes()
+					sb.WriteString(fmt.Sprintf("%s %s: $%.1fM %s → %s (%.0f min ago)\n",
+						emoji, whale.TransactionType,
+						amountUSD/1_000_000,
+						whale.FromOwner, whale.ToOwner,
+						ageMinutes))
+					count++
+				}
+			}
+		}
+
+		sb.WriteString("\n")
+	}
+
 	// News and sentiment
 	if prompt.MarketData != nil && prompt.MarketData.NewsSummary != nil {
 		news := prompt.MarketData.NewsSummary
@@ -146,45 +210,45 @@ func buildUserPrompt(prompt *models.TradingPrompt) string {
 		sb.WriteString(fmt.Sprintf("Average Score: %.2f\n", news.AverageSentiment))
 		sb.WriteString(fmt.Sprintf("Total News: %d (📈 %d | 📉 %d | ➡️ %d)\n\n",
 			news.TotalItems, news.PositiveCount, news.NegativeCount, news.NeutralCount))
-		
+
 		if len(news.RecentNews) > 0 {
 			sb.WriteString("Recent Headlines:\n")
 			for i, item := range news.RecentNews {
 				if i >= 3 {
 					break
 				}
-				
+
 				emoji := "➡️"
 				if item.Sentiment > 0.2 {
 					emoji = "📈"
 				} else if item.Sentiment < -0.2 {
 					emoji = "📉"
 				}
-				
+
 				sb.WriteString(fmt.Sprintf("%d. %s [%s] %s (%.2f)\n",
 					i+1, emoji, item.Source, truncateTitle(item.Title, 80), item.Sentiment))
 			}
 			sb.WriteString("\n")
 		}
 	}
-	
+
 	// Order book imbalance
 	if prompt.MarketData != nil && prompt.MarketData.OrderBook != nil {
 		ob := prompt.MarketData.OrderBook
 		if len(ob.Bids) > 0 && len(ob.Asks) > 0 {
 			bidVolume := 0.0
 			askVolume := 0.0
-			
+
 			for _, bid := range ob.Bids[:min(10, len(ob.Bids))] {
-				bidVolume += bid.Amount.Float64()
+				bidVolume += models.ToFloat64(bid.Amount)
 			}
 			for _, ask := range ob.Asks[:min(10, len(ob.Asks))] {
-				askVolume += ask.Amount.Float64()
+				askVolume += models.ToFloat64(ask.Amount)
 			}
-			
+
 			total := bidVolume + askVolume
 			bidPercent := (bidVolume / total) * 100
-			
+
 			sb.WriteString("=== ORDER BOOK ===\n\n")
 			sb.WriteString(fmt.Sprintf("Bid/Ask Imbalance: %.1f%% bids / %.1f%% asks", bidPercent, 100-bidPercent))
 			if bidPercent > 60 {
@@ -196,70 +260,75 @@ func buildUserPrompt(prompt *models.TradingPrompt) string {
 			}
 		}
 	}
-	
+
 	// Current position
 	if prompt.CurrentPosition != nil {
 		sb.WriteString("=== CURRENT POSITION ===\n\n")
 		pos := prompt.CurrentPosition
 		sb.WriteString(fmt.Sprintf("Side: %s\n", string(pos.Side)))
-		sb.WriteString(fmt.Sprintf("Size: %.4f %s\n", pos.Size.Float64(), pos.Symbol[:3]))
-		sb.WriteString(fmt.Sprintf("Entry Price: $%.2f\n", pos.EntryPrice.Float64()))
-		sb.WriteString(fmt.Sprintf("Current Price: $%.2f\n", pos.CurrentPrice.Float64()))
+		sb.WriteString(fmt.Sprintf("Size: %.4f %s\n", models.ToFloat64(pos.Size), pos.Symbol[:3]))
+		sb.WriteString(fmt.Sprintf("Entry Price: $%.2f\n", models.ToFloat64(pos.EntryPrice)))
+		sb.WriteString(fmt.Sprintf("Current Price: $%.2f\n", models.ToFloat64(pos.CurrentPrice)))
 		sb.WriteString(fmt.Sprintf("Leverage: %dx\n", pos.Leverage))
-		sb.WriteString(fmt.Sprintf("Unrealized PnL: $%.2f", pos.UnrealizedPnL.Float64()))
-		
-		pnlPercent := (pos.UnrealizedPnL.Float64() / pos.Margin.Float64()) * 100
+		sb.WriteString(fmt.Sprintf("Unrealized PnL: $%.2f", models.ToFloat64(pos.UnrealizedPnL)))
+
+		pnlPercent := (models.ToFloat64(pos.UnrealizedPnL) / models.ToFloat64(pos.Margin)) * 100
 		sb.WriteString(fmt.Sprintf(" (%.2f%%)\n", pnlPercent))
-		sb.WriteString(fmt.Sprintf("Margin: $%.2f\n\n", pos.Margin.Float64()))
+		sb.WriteString(fmt.Sprintf("Margin: $%.2f\n\n", models.ToFloat64(pos.Margin)))
 	} else {
 		sb.WriteString("=== CURRENT POSITION ===\n\n")
 		sb.WriteString("No open position\n\n")
 	}
-	
+
 	// Account info
 	sb.WriteString("=== ACCOUNT INFO ===\n\n")
-	sb.WriteString(fmt.Sprintf("Balance: $%.2f\n", prompt.Balance.Float64()))
-	sb.WriteString(fmt.Sprintf("Equity: $%.2f\n", prompt.Equity.Float64()))
-	sb.WriteString(fmt.Sprintf("Daily PnL: $%.2f", prompt.DailyPnL.Float64()))
-	
-	dailyPnLPercent := (prompt.DailyPnL.Float64() / prompt.Balance.Float64()) * 100
+	balance := models.ToFloat64(prompt.Balance)
+	equity := models.ToFloat64(prompt.Equity)
+	dailyPnL := models.ToFloat64(prompt.DailyPnL)
+
+	sb.WriteString(fmt.Sprintf("Balance: $%.2f\n", balance))
+	sb.WriteString(fmt.Sprintf("Equity: $%.2f\n", equity))
+	sb.WriteString(fmt.Sprintf("Daily PnL: $%.2f", dailyPnL))
+
+	dailyPnLPercent := (dailyPnL / balance) * 100
 	sb.WriteString(fmt.Sprintf(" (%.2f%%)\n\n", dailyPnLPercent))
-	
+
 	// Recent trades performance
 	if len(prompt.RecentTrades) > 0 {
 		sb.WriteString("=== RECENT TRADES (Last 5) ===\n\n")
 		wins := 0
 		losses := 0
-		
+
 		for i, trade := range prompt.RecentTrades {
 			if i >= 5 {
 				break
 			}
-			
+
+			pnl := models.ToFloat64(trade.PnL)
 			outcome := "Win"
-			if trade.PnL.Float64() < 0 {
+			if pnl < 0 {
 				outcome = "Loss"
 				losses++
-			} else if trade.PnL.Float64() > 0 {
+			} else if pnl > 0 {
 				wins++
 			}
-			
+
 			sb.WriteString(fmt.Sprintf("%d. %s %s @ $%.2f - PnL: $%.2f (%s)\n",
 				i+1,
 				string(trade.Side),
 				trade.Symbol,
-				trade.Price.Float64(),
-				trade.PnL.Float64(),
+				models.ToFloat64(trade.Price),
+				pnl,
 				outcome,
 			))
 		}
-		
+
 		if wins+losses > 0 {
 			winRate := float64(wins) / float64(wins+losses) * 100
 			sb.WriteString(fmt.Sprintf("\nRecent Win Rate: %.1f%% (%d wins, %d losses)\n\n", winRate, wins, losses))
 		}
 	}
-	
+
 	// Final instruction
 	sb.WriteString("=== YOUR DECISION ===\n\n")
 	sb.WriteString("Based on the above market data, technical indicators, and current position, ")
@@ -269,7 +338,7 @@ func buildUserPrompt(prompt *models.TradingPrompt) string {
 	sb.WriteString("- Always set stop-loss and take-profit\n")
 	sb.WriteString("- Consider risk/reward ratio\n")
 	sb.WriteString("- Respond ONLY with valid JSON\n")
-	
+
 	return sb.String()
 }
 
@@ -278,7 +347,7 @@ func parseAIResponse(content, provider string) (*models.AIDecision, error) {
 	// Try to extract JSON from response
 	// AI might return markdown code blocks or extra text
 	jsonStr := extractJSON(content)
-	
+
 	var response struct {
 		Action     string  `json:"action"`
 		Reason     string  `json:"reason"`
@@ -287,11 +356,11 @@ func parseAIResponse(content, provider string) (*models.AIDecision, error) {
 		TakeProfit float64 `json:"take_profit"`
 		Confidence int     `json:"confidence"`
 	}
-	
+
 	if err := json.Unmarshal([]byte(jsonStr), &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w (content: %s)", err, jsonStr)
 	}
-	
+
 	// Validate action
 	action := models.AIAction(strings.ToUpper(response.Action))
 	validActions := map[models.AIAction]bool{
@@ -302,16 +371,16 @@ func parseAIResponse(content, provider string) (*models.AIDecision, error) {
 		models.ActionScaleIn:   true,
 		models.ActionScaleOut:  true,
 	}
-	
+
 	if !validActions[action] {
 		return nil, fmt.Errorf("invalid action: %s", response.Action)
 	}
-	
+
 	// Validate confidence
 	if response.Confidence < 0 || response.Confidence > 100 {
 		return nil, fmt.Errorf("invalid confidence: %d", response.Confidence)
 	}
-	
+
 	decision := &models.AIDecision{
 		Provider:   provider,
 		Prompt:     "", // Will be set by caller
@@ -325,7 +394,7 @@ func parseAIResponse(content, provider string) (*models.AIDecision, error) {
 		Executed:   false,
 		CreatedAt:  time.Now(),
 	}
-	
+
 	return decision, nil
 }
 
@@ -337,15 +406,15 @@ func extractJSON(text string) string {
 	if len(matches) > 1 {
 		return strings.TrimSpace(matches[1])
 	}
-	
+
 	// Try to find JSON object
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
-	
+
 	if start >= 0 && end > start {
 		return strings.TrimSpace(text[start : end+1])
 	}
-	
+
 	return strings.TrimSpace(text)
 }
 
@@ -364,3 +433,114 @@ func truncateTitle(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// === NEWS EVALUATION PROMPTS ===
+
+// buildNewsEvaluationSystemPrompt creates system prompt for news evaluation
+func buildNewsEvaluationSystemPrompt() string {
+	return `You are a professional crypto market analyst evaluating news impact.
+
+Analyze the news and provide:
+1. SENTIMENT: -1.0 to +1.0 (-1.0=very bearish, +1.0=very bullish, 0=neutral)
+2. IMPACT: 1-10 scale (10=market-moving event, 1=noise)
+3. URGENCY: IMMEDIATE, HOURS, or DAYS
+
+IMPACT SCORING:
+10: ETF approval/rejection, country adoption, major exchange hack, regulatory breakthrough
+9:  Large institutional buys (>$100M), major partnerships, significant regulation
+8:  Exchange listings, protocol upgrades, government statements
+7:  Whale movements (>$10M), notable partnerships, regulatory news
+6:  Medium institutional activity, analyst predictions from major firms
+5:  Standard market updates, general news
+3-4: Minor news, speculation
+1-2: Noise, opinion pieces
+
+URGENCY:
+IMMEDIATE: Breaking news, hacks, approvals - affects price within minutes/hours
+HOURS: Scheduled events, anticipated news - affects within 4-24 hours  
+DAYS: Gradual developments, long-term trends - affects over days/weeks
+
+IMPORTANT:
+- Old news (>24h) = lower impact (already priced in)
+- Rumors without sources = low confidence, low impact
+- Consider source credibility (CoinDesk > random blog)
+- Distinguish Bitcoin-specific vs general crypto news
+
+Respond ONLY with valid JSON:
+{
+  "sentiment": 0.0,
+  "impact": 5,
+  "urgency": "HOURS",
+  "reasoning": "brief explanation"
+}`
+}
+
+// buildNewsEvaluationUserPrompt creates user prompt for news evaluation
+func buildNewsEvaluationUserPrompt(newsItem *models.NewsItem) string {
+	ageHours := time.Since(newsItem.PublishedAt).Hours()
+
+	return fmt.Sprintf(`Evaluate this crypto news:
+
+Source: %s
+Title: %s
+Content: %s
+Published: %.1f hours ago
+
+Provide sentiment, impact (1-10), urgency, and reasoning.`,
+		newsItem.Source,
+		newsItem.Title,
+		truncateContent(newsItem.Content, 500),
+		ageHours,
+	)
+}
+
+// parseNewsEvaluation parses AI evaluation response
+func parseNewsEvaluation(content string) (*NewsEvaluation, error) {
+	jsonStr := extractJSON(content)
+
+	var eval struct {
+		Sentiment float64 `json:"sentiment"`
+		Impact    int     `json:"impact"`
+		Urgency   string  `json:"urgency"`
+		Reasoning string  `json:"reasoning"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &eval); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal: %w", err)
+	}
+
+	// Validate
+	if eval.Sentiment < -1.0 || eval.Sentiment > 1.0 {
+		eval.Sentiment = 0
+	}
+
+	if eval.Impact < 1 || eval.Impact > 10 {
+		eval.Impact = 5
+	}
+
+	if eval.Urgency != "IMMEDIATE" && eval.Urgency != "HOURS" && eval.Urgency != "DAYS" {
+		eval.Urgency = "HOURS"
+	}
+
+	return &NewsEvaluation{
+		Sentiment: eval.Sentiment,
+		Impact:    eval.Impact,
+		Urgency:   eval.Urgency,
+		Reasoning: eval.Reasoning,
+	}, nil
+}
+
+// NewsEvaluation represents AI evaluation of news
+type NewsEvaluation struct {
+	Sentiment float64 `json:"sentiment"`
+	Impact    int     `json:"impact"`
+	Urgency   string  `json:"urgency"`
+	Reasoning string  `json:"reasoning"`
+}
+
+// truncateContent truncates content to maxLen characters
+func truncateContent(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}

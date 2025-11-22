@@ -113,12 +113,6 @@ DB_NAME="trader_prod" make db-setup
 DB_HOST="192.168.1.100" DB_USER="trader" DB_PASSWORD="secret" make db-setup
 ```
 
-### Run Backtest First
-```bash
-# Test strategy before live trading
-make backtest
-```
-
 ## Troubleshooting
 
 ### Database Connection Failed
@@ -210,17 +204,12 @@ DB_USER=trader DB_PASSWORD=trader make setup
    make test-db       # Integration tests
    ```
 
-3. **Backtest strategy**:
-   ```bash
-   make backtest
-   ```
-
-4. **Start with paper trading**:
+3. **Start with paper trading**:
    ```bash
    make paper
    ```
 
-5. **Go live** (when ready):
+4. **Go live** (when ready):
    ```bash
    # Update .env: BINANCE_TESTNET=false
    make run
@@ -248,8 +237,9 @@ make
 - Start with testnet/paper trading
 - Never commit `.env` file
 - Use read-only API keys for testing
-- Backtest thoroughly before live trading
 - Start with small amounts
 
 Happy Trading! 🚀
+
+
 

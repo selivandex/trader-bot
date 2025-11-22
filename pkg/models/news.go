@@ -5,7 +5,7 @@ import "time"
 // NewsItem represents single news item
 type NewsItem struct {
 	ID          string    `json:"id"`
-	Source      string    `json:"source"` // twitter, forklog, coindesk, etc
+	Source      string    `json:"source"` // twitter, reddit, coindesk, etc
 	Title       string    `json:"title"`
 	Content     string    `json:"content"`
 	URL         string    `json:"url"`
@@ -13,6 +13,8 @@ type NewsItem struct {
 	PublishedAt time.Time `json:"published_at"`
 	Sentiment   float64   `json:"sentiment"` // -1.0 to 1.0
 	Relevance   float64   `json:"relevance"` // 0.0 to 1.0
+	Impact      int       `json:"impact"`    // 1-10 (market impact score)
+	Urgency     string    `json:"urgency"`   // IMMEDIATE, HOURS, DAYS
 	Keywords    []string  `json:"keywords"`
 }
 

@@ -6,31 +6,40 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alexanderselivanov/trader/internal/adapters/ai"
 	"github.com/alexanderselivanov/trader/internal/adapters/news"
+	"github.com/alexanderselivanov/trader/internal/sentiment"
 	"github.com/alexanderselivanov/trader/pkg/logger"
 	"github.com/alexanderselivanov/trader/pkg/models"
 )
 
 // NewsWorker continuously fetches and caches news in background
 type NewsWorker struct {
-	aggregator *news.Aggregator
-	cache      *news.Cache
-	interval   time.Duration
-	keywords   []string
+	aggregator      *news.Aggregator
+	cache           *news.Cache
+	impactScorer    *sentiment.ImpactScorer
+	newsEvaluator   ai.NewsEvaluatorInterface
+	useAIEvaluation bool
+	interval        time.Duration
+	keywords        []string
 }
 
 // NewNewsWorker creates new news worker
 func NewNewsWorker(
 	aggregator *news.Aggregator,
 	cache *news.Cache,
+	newsEvaluator ai.NewsEvaluatorInterface,
 	interval time.Duration,
 	keywords []string,
 ) *NewsWorker {
 	return &NewsWorker{
-		aggregator: aggregator,
-		cache:      cache,
-		interval:   interval,
-		keywords:   keywords,
+		aggregator:      aggregator,
+		cache:           cache,
+		impactScorer:    sentiment.NewImpactScorer(),
+		newsEvaluator:   newsEvaluator,
+		useAIEvaluation: newsEvaluator != nil,
+		interval:        interval,
+		keywords:        keywords,
 	}
 }
 
@@ -85,10 +94,42 @@ func (w *NewsWorker) fetchAndCache(ctx context.Context) {
 		return
 	}
 
-	// Cache news items
+	// Score impact for each news item
+	for i := range summary.RecentNews {
+		if w.useAIEvaluation {
+			// Use AI to evaluate news (more accurate but costs API calls)
+			if err := w.newsEvaluator.EvaluateNews(ctx, &summary.RecentNews[i]); err != nil {
+				logger.Warn("AI news evaluation failed, using keyword-based",
+					zap.String("title", summary.RecentNews[i].Title),
+					zap.Error(err),
+				)
+				// Fallback to keyword scoring
+				w.impactScorer.ScoreNewsItem(&summary.RecentNews[i])
+			}
+		} else {
+			// Use keyword-based scoring (faster, free)
+			w.impactScorer.ScoreNewsItem(&summary.RecentNews[i])
+		}
+	}
+	
+	// Cache news items with impact scores
 	if err := w.cache.Save(ctx, summary.RecentNews); err != nil {
 		logger.Error("failed to cache news", zap.Error(err))
 		return
+	}
+	
+	// Log high impact news
+	highImpact := 0
+	for _, item := range summary.RecentNews {
+		if item.Impact >= 7 {
+			highImpact++
+			logger.Info("high impact news detected",
+				zap.String("title", item.Title),
+				zap.Int("impact", item.Impact),
+				zap.String("urgency", item.Urgency),
+				zap.Float64("sentiment", item.Sentiment),
+			)
+		}
 	}
 
 	duration := time.Since(startTime)
