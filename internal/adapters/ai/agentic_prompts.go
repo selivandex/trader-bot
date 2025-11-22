@@ -3,7 +3,7 @@ package ai
 import (
 	"fmt"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // AgenticPrompts provides generic prompts for all agentic AI methods

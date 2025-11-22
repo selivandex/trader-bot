@@ -9,9 +9,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // PlanningEngine creates and executes trading plans
@@ -77,7 +77,7 @@ func (pe *PlanningEngine) CreatePlan(
 
 	// Set plan metadata
 	plan.AgentID = pe.config.ID
-	plan.PlanID = fmt.Sprintf("plan-%d-%d", pe.config.ID, time.Now().Unix())
+	plan.PlanID = fmt.Sprintf("plan-%s-%d", pe.config.ID, time.Now().Unix())
 	plan.TimeHorizon = timeHorizon
 	plan.CreatedAt = time.Now()
 	plan.ExpiresAt = time.Now().Add(timeHorizon)

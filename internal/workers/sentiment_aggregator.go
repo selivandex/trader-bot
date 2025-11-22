@@ -6,9 +6,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/news"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/news"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // SentimentAggregator calculates rolling sentiment metrics with impact weighting

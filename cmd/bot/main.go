@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,22 +11,24 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/internal/adapters/config"
-	"github.com/alexanderselivanov/trader/internal/adapters/database"
-	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
-	"github.com/alexanderselivanov/trader/internal/adapters/market"
-	"github.com/alexanderselivanov/trader/internal/adapters/news"
-	"github.com/alexanderselivanov/trader/internal/adapters/onchain"
-	"github.com/alexanderselivanov/trader/internal/adapters/price"
-	"github.com/alexanderselivanov/trader/internal/adapters/telegram"
-	"github.com/alexanderselivanov/trader/internal/agents"
-	"github.com/alexanderselivanov/trader/internal/sentiment"
-	"github.com/alexanderselivanov/trader/internal/users"
-	"github.com/alexanderselivanov/trader/internal/workers"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
 	_ "github.com/lib/pq"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/internal/adapters/config"
+	"github.com/selivandex/trader-bot/internal/adapters/database"
+	"github.com/selivandex/trader-bot/internal/adapters/exchange"
+	"github.com/selivandex/trader-bot/internal/adapters/market"
+	"github.com/selivandex/trader-bot/internal/adapters/news"
+	"github.com/selivandex/trader-bot/internal/adapters/onchain"
+	"github.com/selivandex/trader-bot/internal/adapters/price"
+	redisAdapter "github.com/selivandex/trader-bot/internal/adapters/redis"
+	"github.com/selivandex/trader-bot/internal/adapters/telegram"
+	"github.com/selivandex/trader-bot/internal/agents"
+	"github.com/selivandex/trader-bot/internal/health"
+	"github.com/selivandex/trader-bot/internal/sentiment"
+	"github.com/selivandex/trader-bot/internal/users"
+	"github.com/selivandex/trader-bot/internal/workers"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 func main() {
@@ -73,6 +76,13 @@ func run(ctx context.Context) error {
 	}
 	defer db.Close()
 
+	// Initialize Redis (for distributed locking)
+	redisClient, err := initRedis(cfg)
+	if err != nil {
+		return err
+	}
+	defer redisClient.Close()
+
 	// Initialize AI providers
 	aiProviders, err := initAIProviders(cfg)
 	if err != nil {
@@ -92,8 +102,7 @@ func run(ctx context.Context) error {
 	startBackgroundWorkers(ctx, cfg, db, marketRepo)
 
 	// Initialize AGENTIC AI Manager (autonomous agents only)
-	agenticManager := agents.NewAgenticManager(db.DB(), marketRepo, newsAggregator, aiProviders)
-	defer agenticManager.Shutdown()
+	agenticManager := agents.NewAgenticManager(db.DB(), redisClient, marketRepo, newsAggregator, aiProviders)
 
 	// Initialize User Repository
 	userRepo := users.NewAgentsRepository(db)
@@ -101,31 +110,17 @@ func run(ctx context.Context) error {
 	// Initialize Agent Repository
 	agentRepo := agents.NewRepository(db.DB())
 
-	logger.Info("🤖 Autonomous AI Agent System Ready!",
-		zap.Int("ai_providers", len(aiProviders)),
-	)
+	// Initialize and start Health Check Server
+	healthServer := startHealthServer(cfg, db, redisClient, agenticManager, len(aiProviders))
 
-	// Initialize Telegram Bot for agent management
-	if cfg.Telegram.BotToken != "" {
-		agentBot, err := telegram.NewAgentBot(&cfg.Telegram, agenticManager, userRepo, agentRepo)
-		if err != nil {
-			logger.Error("failed to create telegram bot", zap.Error(err))
-		} else {
-			go func() {
-				if err := agentBot.Start(ctx); err != nil && err != context.Canceled {
-					logger.Error("telegram bot error", zap.Error(err))
-				}
-			}()
+	// Initialize and start Telegram Bot for agent management
+	startTelegramBot(ctx, cfg, agenticManager, userRepo, agentRepo)
 
-			logger.Info("📱 Telegram bot started for agent control")
-		}
-	}
-
-	// Keep service running
+	// Wait for shutdown signal
 	<-ctx.Done()
-	logger.Info("shutting down gracefully...")
 
-	return nil
+	// Perform graceful shutdown
+	return performGracefulShutdown(healthServer, agenticManager, db, redisClient)
 }
 
 // initDatabase initializes database connection with sqlx
@@ -148,6 +143,27 @@ func initDatabase(cfg *config.Config) (*database.DB, error) {
 	)
 
 	return db, nil
+}
+
+// initRedis initializes Redis client with Redlock support
+func initRedis(cfg *config.Config) (*redisAdapter.Client, error) {
+	redisClient, err := redisAdapter.New(&cfg.Redis)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to redis: %w", err)
+	}
+
+	// Test connection
+	if err := redisClient.Health(); err != nil {
+		redisClient.Close()
+		return nil, fmt.Errorf("redis health check failed: %w", err)
+	}
+
+	logger.Info("redis connection established (redlock)",
+		zap.String("host", cfg.Redis.Host),
+		zap.Int("port", cfg.Redis.Port),
+	)
+
+	return redisClient, nil
 }
 
 // initAIProviders initializes AI providers
@@ -396,6 +412,99 @@ func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *databas
 	}
 
 	logger.Info("background workers started")
+}
+
+// startHealthServer initializes and starts health check server for K8s probes
+func startHealthServer(cfg *config.Config, db *database.DB, redisClient *redisAdapter.Client, agenticManager *agents.AgenticManager, aiProvidersCount int) *health.Server {
+	healthServer := health.NewServer(cfg.Health.Port, db, redisClient, agenticManager)
+
+	go func() {
+		if err := healthServer.Start(); err != nil && err != http.ErrServerClosed {
+			logger.Error("health server error", zap.Error(err))
+		}
+	}()
+
+	logger.Info("🤖 Autonomous AI Agent System Ready!",
+		zap.Int("ai_providers", aiProvidersCount),
+		zap.String("health_port", cfg.Health.Port),
+	)
+
+	// Mark service as ready after initialization
+	healthServer.SetReady(true)
+
+	return healthServer
+}
+
+// startTelegramBot initializes and starts Telegram bot for agent management
+func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository) {
+	if cfg.Telegram.BotToken == "" {
+		logger.Info("telegram bot disabled (no token provided)")
+		return
+	}
+
+	agentBot, err := telegram.NewAgentBot(cfg, agenticManager, userRepo, agentRepo)
+	if err != nil {
+		logger.Error("failed to create telegram bot", zap.Error(err))
+		return
+	}
+
+	go func() {
+		if err := agentBot.Start(ctx); err != nil && err != context.Canceled {
+			logger.Error("telegram bot error", zap.Error(err))
+		}
+	}()
+
+	logger.Info("📱 Telegram bot started for agent control")
+}
+
+// performGracefulShutdown handles graceful shutdown of all components
+func performGracefulShutdown(healthServer *health.Server, agenticManager *agents.AgenticManager, db *database.DB, redisClient *redisAdapter.Client) error {
+	logger.Info("🛑 Shutdown signal received, starting graceful shutdown...")
+
+	// Mark service as not ready (stop accepting new traffic)
+	healthServer.SetReady(false)
+
+	// Create shutdown context with timeout (K8s gives 30s terminationGracePeriodSeconds)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer shutdownCancel()
+
+	// Shutdown agent manager first (stops all agents gracefully)
+	logger.Info("stopping agent manager...")
+	if err := agenticManager.Shutdown(); err != nil {
+		logger.Error("agent manager shutdown error", zap.Error(err))
+	}
+
+	// Close database connection
+	logger.Info("closing database connection...")
+	if err := db.Close(); err != nil {
+		logger.Error("database close error", zap.Error(err))
+	}
+
+	// Close redis connection
+	logger.Info("closing redis connection...")
+	if err := redisClient.Close(); err != nil {
+		logger.Error("redis close error", zap.Error(err))
+	}
+
+	// Stop health server
+	logger.Info("stopping health server...")
+	if err := healthServer.Stop(shutdownCtx); err != nil {
+		logger.Error("health server stop error", zap.Error(err))
+	}
+
+	// Sync logger
+	logger.Sync()
+
+	// Check if shutdown completed in time
+	select {
+	case <-shutdownCtx.Done():
+		logger.Warn("⚠️ shutdown timeout exceeded")
+		return fmt.Errorf("graceful shutdown timeout")
+	default:
+		logger.Info("✅ shutdown completed successfully")
+	}
+
+	return nil
 }
 
 // TODO: Create Telegram bot for agent management

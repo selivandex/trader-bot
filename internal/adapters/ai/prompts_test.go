@@ -7,7 +7,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 func TestBuildUserPrompt(t *testing.T) {

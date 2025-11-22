@@ -7,7 +7,7 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/database"
+	"github.com/selivandex/trader-bot/internal/adapters/database"
 )
 
 // TestDB wraps database for testing with automatic rollback

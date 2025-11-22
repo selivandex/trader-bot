@@ -6,9 +6,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/onchain"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/onchain"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // OnChainWorker monitors blockchain activity

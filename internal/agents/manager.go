@@ -9,13 +9,14 @@ import (
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
-	"github.com/alexanderselivanov/trader/internal/adapters/market"
-	"github.com/alexanderselivanov/trader/internal/adapters/news"
-	"github.com/alexanderselivanov/trader/internal/indicators"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/internal/adapters/exchange"
+	"github.com/selivandex/trader-bot/internal/adapters/market"
+	"github.com/selivandex/trader-bot/internal/adapters/news"
+	redisAdapter "github.com/selivandex/trader-bot/internal/adapters/redis"
+	"github.com/selivandex/trader-bot/internal/indicators"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // AgenticManager manages autonomous AI agents with full thinking capabilities
@@ -23,6 +24,7 @@ import (
 type AgenticManager struct {
 	mu             sync.RWMutex
 	db             *sqlx.DB
+	redisClient    *redisAdapter.Client
 	repository     *Repository
 	marketRepo     *market.Repository
 	newsAggregator *news.Aggregator
@@ -30,6 +32,8 @@ type AgenticManager struct {
 	runningAgents  map[string]*AgenticRunner     // agentID -> runner
 	ctx            context.Context
 	cancel         context.CancelFunc
+	wg             sync.WaitGroup // For graceful shutdown
+	shutdownOnce   sync.Once      // Ensure shutdown runs once
 }
 
 // AgenticRunner represents a fully autonomous agent
@@ -41,6 +45,7 @@ type AgenticRunner struct {
 	PlanningEngine   *PlanningEngine        // Forward planning
 	MemoryManager    *SemanticMemoryManager // Episodic memory
 	Exchange         exchange.Exchange
+	Lock             redisAdapter.AgentLock // Distributed lock for K8s (interface)
 	CancelFunc       context.CancelFunc
 	IsRunning        bool
 	LastDecisionAt   time.Time
@@ -49,7 +54,13 @@ type AgenticRunner struct {
 }
 
 // NewAgenticManager creates new agentic agent manager
-func NewAgenticManager(db *sqlx.DB, marketRepo *market.Repository, newsAggregator *news.Aggregator, aiProviders []ai.Provider) *AgenticManager {
+func NewAgenticManager(
+	db *sqlx.DB,
+	redisClient *redisAdapter.Client,
+	marketRepo *market.Repository,
+	newsAggregator *news.Aggregator,
+	aiProviders []ai.Provider,
+) *AgenticManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Filter only agentic providers
@@ -66,6 +77,7 @@ func NewAgenticManager(db *sqlx.DB, marketRepo *market.Repository, newsAggregato
 
 	return &AgenticManager{
 		db:             db,
+		redisClient:    redisClient,
 		repository:     NewRepository(db),
 		marketRepo:     marketRepo,
 		newsAggregator: newsAggregator,
@@ -87,18 +99,33 @@ func (am *AgenticManager) StartAgenticAgent(
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
-	// Check if already running
+	// Check if already running in this pod
 	if runner, exists := am.runningAgents[agentID]; exists && runner.IsRunning {
-		return fmt.Errorf("agent already running")
+		return fmt.Errorf("agent already running in this pod")
+	}
+
+	// Try to acquire distributed lock (for multi-pod deployments)
+	lockManager := am.redisClient.GetLockManager()
+	lock := redisAdapter.NewDistributedLock(lockManager, agentID)
+	acquired, err := lock.TryAcquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire agent lock: %w", err)
+	}
+
+	if !acquired {
+		return fmt.Errorf("agent is already running in another pod")
 	}
 
 	// Load agent config
 	config, err := am.repository.GetAgent(ctx, agentID)
 	if err != nil {
+		// Release lock if config load fails
+		lock.Release(ctx)
 		return fmt.Errorf("failed to load agent config: %w", err)
 	}
 
 	if !config.IsActive {
+		lock.Release(ctx)
 		return fmt.Errorf("agent is not active")
 	}
 
@@ -148,6 +175,7 @@ func (am *AgenticManager) StartAgenticAgent(
 		PlanningEngine:   planningEngine,
 		MemoryManager:    memoryManager,
 		Exchange:         exchangeAdapter,
+		Lock:             lock, // Store lock in runner
 		CancelFunc:       agentCancel,
 		IsRunning:        true,
 		LastDecisionAt:   time.Now(),
@@ -157,8 +185,12 @@ func (am *AgenticManager) StartAgenticAgent(
 
 	am.runningAgents[agentID] = runner
 
-	// Start agent goroutine
-	go am.runAgenticAgent(agentCtx, runner)
+	// Start agent goroutine with WaitGroup
+	am.wg.Add(1)
+	go func() {
+		defer am.wg.Done()
+		am.runAgenticAgent(agentCtx, runner)
+	}()
 
 	logger.Info("🤖 Autonomous agent started",
 		zap.String("agent_id", agentID),
@@ -453,33 +485,71 @@ func (am *AgenticManager) GetRunningAgents() []*AgenticRunner {
 
 // Shutdown gracefully shuts down all agentic agents
 func (am *AgenticManager) Shutdown() error {
-	logger.Info("shutting down agentic agent manager...")
+	var shutdownErr error
 
-	am.mu.Lock()
-	defer am.mu.Unlock()
+	am.shutdownOnce.Do(func() {
+		logger.Info("🛑 shutting down agentic agent manager...")
 
-	for agentID, runner := range am.runningAgents {
-		logger.Info("stopping autonomous agent",
-			zap.String("agent_id", agentID),
-			zap.String("name", runner.Config.Name),
-		)
+		// Cancel all agent contexts
+		am.mu.Lock()
+		for agentID, runner := range am.runningAgents {
+			logger.Info("stopping autonomous agent",
+				zap.String("agent_id", agentID),
+				zap.String("name", runner.Config.Name),
+			)
 
-		runner.CancelFunc()
-		runner.IsRunning = false
-
-		// Final state save
-		runner.State.IsTrading = false
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := am.repository.CreateAgentState(ctx, runner.State); err != nil {
-			logger.Error("failed to update agent state", zap.Error(err))
+			runner.CancelFunc()
+			runner.IsRunning = false
 		}
-		cancel()
-	}
+		am.cancel()
+		am.mu.Unlock()
 
-	am.cancel()
+		// Wait for all agents to finish with timeout (K8s gives 30s terminationGracePeriodSeconds)
+		done := make(chan struct{})
+		go func() {
+			am.wg.Wait()
+			close(done)
+		}()
 
-	logger.Info("agentic agent manager shut down complete")
-	return nil
+		select {
+		case <-done:
+			logger.Info("✅ all agents stopped gracefully")
+		case <-time.After(25 * time.Second):
+			logger.Warn("⚠️ shutdown timeout, some agents may not have stopped cleanly")
+		}
+
+		// Save final states and release locks
+		am.mu.Lock()
+		defer am.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		for agentID, runner := range am.runningAgents {
+			// Save final state
+			runner.State.IsTrading = false
+			if err := am.repository.CreateAgentState(ctx, runner.State); err != nil {
+				logger.Error("failed to save final agent state",
+					zap.String("agent_id", agentID),
+					zap.Error(err),
+				)
+			}
+
+			// Release distributed lock
+			if runner.Lock != nil {
+				if err := runner.Lock.Release(ctx); err != nil {
+					logger.Error("failed to release agent lock",
+						zap.String("agent_id", agentID),
+						zap.Error(err),
+					)
+				}
+			}
+		}
+
+		logger.Info("✅ agentic agent manager shut down complete")
+	})
+
+	return shutdownErr
 }
 
 // executeAgenticDecision executes trading decision

@@ -3,7 +3,7 @@ package onchain
 import (
 	"context"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // OnChainProvider is interface for on-chain data sources

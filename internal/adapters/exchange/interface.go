@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Exchange represents unified exchange interface

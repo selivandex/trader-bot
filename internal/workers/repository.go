@@ -7,7 +7,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Repository handles database operations for workers

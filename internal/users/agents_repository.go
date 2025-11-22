@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/database"
-	"github.com/alexanderselivanov/trader/pkg/crypto"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/database"
+	"github.com/selivandex/trader-bot/pkg/crypto"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // AgentsRepository handles user operations for agent system

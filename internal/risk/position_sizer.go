@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // PositionSizer calculates optimal position sizes

@@ -10,7 +10,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Repository handles database operations for agents
@@ -549,9 +549,7 @@ func (r *Repository) GetSemanticMemories(ctx context.Context, agentID string, li
 
 		// Convert embedding
 		embedding := make([]float32, len(embeddingFloats))
-		for i, v := range embeddingFloats {
-			embedding[i] = v
-		}
+		copy(embedding, embeddingFloats)
 		mem.Embedding = embedding
 
 		memories = append(memories, mem)
@@ -845,9 +843,7 @@ func (r *Repository) GetCollectiveMemories(ctx context.Context, personality stri
 		}
 
 		embedding := make([]float32, len(embeddingFloats))
-		for i, v := range embeddingFloats {
-			embedding[i] = v
-		}
+		copy(embedding, embeddingFloats)
 		mem.Embedding = embedding
 
 		memories = append(memories, mem)

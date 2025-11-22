@@ -3,7 +3,7 @@ package ai
 import (
 	"context"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // AgenticProvider extends Provider with autonomous agent capabilities

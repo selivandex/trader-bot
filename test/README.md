@@ -63,7 +63,7 @@ package mypackage
 
 import (
     "testing"
-    "github.com/alexanderselivanov/trader/test/testdb"
+    "github.com/selivandex/trader-bot/test/testdb"
 )
 
 func TestMyFunction(t *testing.T) {
@@ -214,4 +214,3 @@ Minimum coverage targets:
 - Critical packages (risk, portfolio): 80%+
 - Adapters: 60%+
 - Overall project: 70%+
-

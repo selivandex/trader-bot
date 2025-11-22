@@ -6,9 +6,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // DecisionEngine makes trading decisions using AI providers with weighted signals
@@ -123,7 +123,7 @@ func (e *DecisionEngine) formatDecisionReason(aiDecision *models.AIDecision, sig
 		aiDecision.Reason,
 	)
 
-	reason += fmt.Sprintf("📊 Signal Analysis (Agent's Weights):\n")
+	reason += "📊 Signal Analysis (Agent's Weights):\n"
 	reason += fmt.Sprintf("  🔧 Technical: %.1f/100 (%.0f%% weight) - %s\n",
 		signals.Technical.Score,
 		e.config.Specialization.TechnicalWeight*100,

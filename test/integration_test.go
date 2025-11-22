@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
-	"github.com/alexanderselivanov/trader/internal/indicators"
-	"github.com/alexanderselivanov/trader/internal/risk"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/internal/adapters/exchange"
+	"github.com/selivandex/trader-bot/internal/indicators"
+	"github.com/selivandex/trader-bot/internal/risk"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // TestTradingFlow tests complete trading flow with mock components

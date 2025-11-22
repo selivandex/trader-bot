@@ -6,11 +6,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/internal/adapters/news"
-	"github.com/alexanderselivanov/trader/internal/sentiment"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/internal/adapters/news"
+	"github.com/selivandex/trader-bot/internal/sentiment"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // NewsWorker continuously fetches and caches news in background

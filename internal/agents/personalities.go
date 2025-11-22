@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // PresetAgentConfigs provides pre-configured agents with different personalities

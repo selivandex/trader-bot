@@ -6,9 +6,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
-	"github.com/alexanderselivanov/trader/internal/adapters/market"
-	"github.com/alexanderselivanov/trader/pkg/logger"
+	"github.com/selivandex/trader-bot/internal/adapters/exchange"
+	"github.com/selivandex/trader-bot/internal/adapters/market"
+	"github.com/selivandex/trader-bot/pkg/logger"
 )
 
 // CandlesWorker periodically fetches and stores OHLCV candles

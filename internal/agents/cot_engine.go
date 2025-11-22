@@ -8,9 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/ai"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // ChainOfThoughtEngine implements multi-step reasoning for autonomous agents
@@ -43,7 +43,7 @@ func (cot *ChainOfThoughtEngine) Think(
 	marketData *models.MarketData,
 	position *models.Position,
 ) (*models.AgentDecision, *ai.ReasoningTrace, error) {
-	sessionID := fmt.Sprintf("agent-%d-%d", cot.config.ID, time.Now().Unix())
+	sessionID := fmt.Sprintf("agent-%s-%d", cot.config.ID, time.Now().Unix())
 
 	// Get agent's personality system prompt
 	systemPrompt := GetAgentSystemPrompt(cot.config.Personality, cot.config.Name)
@@ -155,7 +155,7 @@ func (cot *ChainOfThoughtEngine) Think(
 		logger.Warn("failed to marshal market data", zap.Error(err))
 		marketDataJSON = []byte("{}")
 	}
-	
+
 	// Convert to AgentDecision format
 	agentDecision := &models.AgentDecision{
 		AgentID:        cot.config.ID,

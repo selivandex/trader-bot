@@ -45,7 +45,7 @@ trader/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/alexanderselivanov/trader.git
+git clone https://github.com/selivandex/trader-bot.git
 cd trader
 ```
 
@@ -238,4 +238,3 @@ MIT License - see LICENSE file for details
 For issues and questions, please open a GitHub issue.
 
 **Never share your API keys or .env file!**
-

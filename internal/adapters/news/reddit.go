@@ -11,8 +11,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 const redditAPIURL = "https://www.reddit.com/r/%s/hot.json?limit=%d"

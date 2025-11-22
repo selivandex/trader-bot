@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/logger"
 )
 
 // DailyMetricsWorker calculates daily performance metrics

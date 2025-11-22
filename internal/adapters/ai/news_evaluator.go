@@ -3,7 +3,7 @@ package ai
 import (
 	"context"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // NewsEvaluatorInterface defines interface for news evaluation

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // buildSystemPrompt creates system prompt for AI with strategy parameters

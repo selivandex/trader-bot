@@ -7,9 +7,9 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/exchange"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // AgentPortfolioTracker tracks portfolio for a single agent

@@ -3,7 +3,7 @@ package risk
 import (
 	"fmt"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Validator validates trading decisions against risk rules

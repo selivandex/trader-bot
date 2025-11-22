@@ -9,7 +9,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/logger"
 )
 
 // RunMigrations executes all pending database migrations

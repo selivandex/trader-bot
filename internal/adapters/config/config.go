@@ -19,6 +19,8 @@ type Config struct {
 	Risk      RiskConfig      `envconfig:"RISK"`
 	Telegram  TelegramConfig  `envconfig:"TELEGRAM"`
 	Database  DatabaseConfig  `envconfig:"DATABASE"`
+	Redis     RedisConfig     `envconfig:"REDIS"`
+	Health    HealthConfig    `envconfig:"HEALTH"`
 	Logging   LoggingConfig   `envconfig:"LOGGING"`
 }
 
@@ -34,10 +36,52 @@ type ExchangesConfig struct {
 }
 
 // ExchangeConfig represents single exchange configuration
+// NOTE: API keys are stored per-user in database (user_exchanges table), not here
 type ExchangeConfig struct {
-	APIKey  string `envconfig:"API_KEY" required:"false"`
-	Secret  string `envconfig:"SECRET" required:"false"`
-	Testnet bool   `envconfig:"TESTNET" default:"true"`
+	DefaultTestnet    bool   `envconfig:"DEFAULT_TESTNET" default:"true"`       // Default testnet mode for new connections
+	TestnetURLPublic  string `envconfig:"TESTNET_URL_PUBLIC" required:"false"`  // Custom testnet public API URL
+	TestnetURLPrivate string `envconfig:"TESTNET_URL_PRIVATE" required:"false"` // Custom testnet private API URL
+	MainnetURLPublic  string `envconfig:"MAINNET_URL_PUBLIC" required:"false"`  // Custom mainnet public API URL
+	MainnetURLPrivate string `envconfig:"MAINNET_URL_PRIVATE" required:"false"` // Custom mainnet private API URL
+}
+
+// GetAPIURLs returns API URLs configuration for CCXT based on testnet flag
+func (e *ExchangeConfig) GetAPIURLs(testnet bool, defaultTestnetPublic, defaultTestnetPrivate, defaultMainnetPublic, defaultMainnetPrivate string) map[string]interface{} {
+	if testnet {
+		publicURL := defaultTestnetPublic
+		privateURL := defaultTestnetPrivate
+
+		if e.TestnetURLPublic != "" {
+			publicURL = e.TestnetURLPublic
+		}
+		if e.TestnetURLPrivate != "" {
+			privateURL = e.TestnetURLPrivate
+		}
+
+		return map[string]interface{}{
+			"api": map[string]interface{}{
+				"public":  publicURL,
+				"private": privateURL,
+			},
+		}
+	}
+
+	publicURL := defaultMainnetPublic
+	privateURL := defaultMainnetPrivate
+
+	if e.MainnetURLPublic != "" {
+		publicURL = e.MainnetURLPublic
+	}
+	if e.MainnetURLPrivate != "" {
+		privateURL = e.MainnetURLPrivate
+	}
+
+	return map[string]interface{}{
+		"api": map[string]interface{}{
+			"public":  publicURL,
+			"private": privateURL,
+		},
+	}
 }
 
 // TradingConfig represents trading parameters
@@ -124,10 +168,23 @@ type DatabaseConfig struct {
 	SSLMode  string `envconfig:"DB_SSLMODE" default:"disable"`
 }
 
+// RedisConfig represents Redis connection parameters
+type RedisConfig struct {
+	Host     string `envconfig:"REDIS_HOST" default:"localhost"`
+	Port     int    `envconfig:"REDIS_PORT" default:"6379"`
+	Password string `envconfig:"REDIS_PASSWORD" required:"false" default:""`
+	DB       int    `envconfig:"REDIS_DB" default:"0"`
+}
+
 // LoggingConfig represents logging configuration
 type LoggingConfig struct {
 	Level string `envconfig:"LOG_LEVEL" default:"info"`
 	File  string `envconfig:"LOG_FILE" default:"logs/bot.log"`
+}
+
+// HealthConfig represents health check server configuration
+type HealthConfig struct {
+	Port string `envconfig:"HEALTH_PORT" default:"8080"`
 }
 
 // Load reads configuration from environment variables

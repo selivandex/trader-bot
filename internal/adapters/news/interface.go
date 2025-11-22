@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Provider represents news source provider interface

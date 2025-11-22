@@ -10,25 +10,26 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/config"
-	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
-	"github.com/alexanderselivanov/trader/internal/agents"
-	"github.com/alexanderselivanov/trader/internal/users"
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/internal/adapters/config"
+	"github.com/selivandex/trader-bot/internal/adapters/exchange"
+	"github.com/selivandex/trader-bot/internal/agents"
+	"github.com/selivandex/trader-bot/internal/users"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // AgentBot handles Telegram commands for AI agents
 type AgentBot struct {
 	api            *tgbotapi.BotAPI
+	cfg            *config.Config
 	agenticManager *agents.AgenticManager
 	userRepo       *users.AgentsRepository
 	agentRepo      *agents.Repository
 }
 
 // NewAgentBot creates new Telegram bot for agents
-func NewAgentBot(cfg *config.TelegramConfig, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository) (*AgentBot, error) {
-	bot, err := tgbotapi.NewBotAPI(cfg.BotToken)
+func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository) (*AgentBot, error) {
+	bot, err := tgbotapi.NewBotAPI(cfg.Telegram.BotToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
@@ -41,6 +42,7 @@ func NewAgentBot(cfg *config.TelegramConfig, agenticManager *agents.AgenticManag
 
 	return &AgentBot{
 		api:            bot,
+		cfg:            cfg,
 		agenticManager: agenticManager,
 		userRepo:       userRepo,
 		agentRepo:      agentRepo,
@@ -340,24 +342,39 @@ func (ab *AgentBot) handleStartAgent(ctx context.Context, telegramID int64, user
 
 	// Create exchange adapter
 	var exchangeAdapter exchange.Exchange
-	_ = &config.ExchangeConfig{ // TODO: Use when real exchange adapters enabled
-		APIKey:  exch.APIKey,
-		Secret:  exch.APISecret,
-		Testnet: exch.Testnet,
-	}
 
+	// Create real exchange adapter
 	switch exch.Exchange {
 	case "binance":
-		// TODO: Re-enable when binance adapter is fixed
-		// exchangeAdapter, err = exchange.NewBinanceAdapter(exchangeConfig)
-		ab.sendMessage(telegramID, "❌ Binance adapter temporarily disabled. Use mock exchange for testing.")
-		// Use mock for now
-		exchangeAdapter = &exchange.MockExchange{}
+		exchangeAdapter, err = exchange.NewBinanceAdapter(
+			exch.APIKey,
+			exch.APISecret,
+			exch.Testnet,
+			&ab.cfg.Exchanges.Binance,
+		)
+		if err != nil {
+			ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to connect Binance: %v", err))
+			return
+		}
+		logger.Info("✅ Binance connected",
+			zap.String("symbol", symbol),
+			zap.Bool("testnet", exch.Testnet),
+		)
 	case "bybit":
-		// TODO: Re-enable when bybit adapter is fixed
-		// exchangeAdapter, err = exchange.NewBybitAdapter(exchangeConfig)
-		ab.sendMessage(telegramID, "❌ Bybit adapter temporarily disabled. Use mock exchange for testing.")
-		exchangeAdapter = &exchange.MockExchange{}
+		exchangeAdapter, err = exchange.NewBybitAdapter(
+			exch.APIKey,
+			exch.APISecret,
+			exch.Testnet,
+			&ab.cfg.Exchanges.Bybit,
+		)
+		if err != nil {
+			ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to connect Bybit: %v", err))
+			return
+		}
+		logger.Info("✅ Bybit connected",
+			zap.String("symbol", symbol),
+			zap.Bool("testnet", exch.Testnet),
+		)
 	default:
 		ab.sendMessage(telegramID, fmt.Sprintf("❌ Unsupported exchange: %s", exch.Exchange))
 		return
@@ -472,7 +489,7 @@ func (ab *AgentBot) handleStats(ctx context.Context, telegramID int64, userID st
 	msg := fmt.Sprintf("📊 *Agent Statistics*\n\n%s *%s*\n", emoji, agentConfig.Name)
 
 	if isRunning {
-		msg += fmt.Sprintf("Status: ▶️ Running\n")
+		msg += "Status: ▶️ Running\n"
 		msg += fmt.Sprintf("Last Decision: %s ago\n", time.Since(runner.LastDecisionAt).Round(time.Second))
 		msg += fmt.Sprintf("Last Reflection: %s ago\n", time.Since(runner.LastReflectionAt).Round(time.Second))
 	} else {

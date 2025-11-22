@@ -13,7 +13,7 @@ Get your trading bot up and running in 5 minutes! ⚡
 ## Step 1: Clone & Install
 
 ```bash
-git clone https://github.com/alexanderselivanov/trader.git
+git clone https://github.com/selivandex/trader-bot.git
 cd trader
 go mod download
 ```
@@ -240,6 +240,3 @@ make
 - Start with small amounts
 
 Happy Trading! 🚀
-
-
-

@@ -3,7 +3,7 @@ package sentiment
 import (
 	"strings"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // ImpactScorer scores news impact on market

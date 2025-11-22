@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // GetCachedSummary gets news summary from cache

@@ -3,7 +3,7 @@ package risk
 import (
 	"testing"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 func TestPositionSizer_CalculatePositionSize(t *testing.T) {

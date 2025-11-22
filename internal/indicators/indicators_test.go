@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 func TestCalculator_Calculate(t *testing.T) {

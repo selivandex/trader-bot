@@ -6,8 +6,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alexanderselivanov/trader/pkg/logger"
-	"github.com/alexanderselivanov/trader/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Cache handles news caching in database

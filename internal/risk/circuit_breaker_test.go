@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexanderselivanov/trader/internal/adapters/config"
-	"github.com/alexanderselivanov/trader/pkg/logger"
+	"github.com/selivandex/trader-bot/internal/adapters/config"
+	"github.com/selivandex/trader-bot/pkg/logger"
 )
 
 func TestCircuitBreaker_RecordTrade(t *testing.T) {
