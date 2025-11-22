@@ -1058,6 +1058,51 @@ func (r *Repository) GetDailyPnL(ctx context.Context, agentID, symbol string) (f
 	return dailyPnL, err
 }
 
+// ========== On-Chain Data Methods ==========
+
+// GetRecentWhaleTransactions gets recent whale movements for symbol
+func (r *Repository) GetRecentWhaleTransactions(ctx context.Context, symbol string, hours int, minImpact int) ([]models.WhaleTransaction, error) {
+	query := `
+		SELECT id, tx_hash, blockchain, symbol, amount, amount_usd,
+		       from_address, to_address, from_owner, to_owner,
+		       transaction_type, timestamp, impact_score, created_at
+		FROM whale_transactions
+		WHERE symbol = $1
+		  AND timestamp > NOW() - INTERVAL '%d hours'
+		  AND impact_score >= $2
+		ORDER BY timestamp DESC
+		LIMIT 50
+	`
+
+	var transactions []models.WhaleTransaction
+	err := r.db.SelectContext(ctx, &transactions, fmt.Sprintf(query, hours), symbol, minImpact)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get whale transactions: %w", err)
+	}
+
+	return transactions, nil
+}
+
+// GetExchangeFlows gets aggregated exchange flows for symbol
+func (r *Repository) GetExchangeFlows(ctx context.Context, symbol string, hours int) ([]models.ExchangeFlow, error) {
+	query := `
+		SELECT id, exchange, symbol, timestamp, inflow, outflow, net_flow, created_at
+		FROM exchange_flows
+		WHERE symbol = $1
+		  AND timestamp > NOW() - INTERVAL '%d hours'
+		ORDER BY timestamp DESC
+		LIMIT 24
+	`
+
+	var flows []models.ExchangeFlow
+	err := r.db.SelectContext(ctx, &flows, fmt.Sprintf(query, hours), symbol)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get exchange flows: %w", err)
+	}
+
+	return flows, nil
+}
+
 // GetAgentPerformanceMetrics calculates agent performance metrics
 func (r *Repository) GetAgentPerformanceMetrics(ctx context.Context, agentID string, symbol string) (*AgentPerformanceMetrics, error) {
 	query := `

@@ -13,22 +13,22 @@ import (
 
 // OnChainWorker monitors blockchain activity
 type OnChainWorker struct {
-	repo          *Repository
-	whaleAlert    *onchain.WhaleAlertProvider
-	interval      time.Duration
-	minValueUSD   int
+	repo        *Repository
+	provider    onchain.OnChainProvider // Interface instead of concrete type
+	interval    time.Duration
+	minValueUSD int
 }
 
 // NewOnChainWorker creates new on-chain worker
 func NewOnChainWorker(
 	repo *Repository,
-	whaleAlert *onchain.WhaleAlertProvider,
+	provider onchain.OnChainProvider,
 	interval time.Duration,
 	minValueUSD int,
 ) *OnChainWorker {
 	return &OnChainWorker{
 		repo:        repo,
-		whaleAlert:  whaleAlert,
+		provider:    provider,
 		interval:    interval,
 		minValueUSD: minValueUSD,
 	}
@@ -40,19 +40,19 @@ func (ow *OnChainWorker) Start(ctx context.Context) error {
 		zap.Duration("interval", ow.interval),
 		zap.Int("min_value_usd", ow.minValueUSD),
 	)
-	
+
 	// Run immediately
 	ow.fetchAndCache(ctx)
-	
+
 	ticker := time.NewTicker(ow.interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("on-chain worker stopped")
 			return ctx.Err()
-			
+
 		case <-ticker.C:
 			ow.fetchAndCache(ctx)
 		}
@@ -61,30 +61,32 @@ func (ow *OnChainWorker) Start(ctx context.Context) error {
 
 // fetchAndCache fetches whale transactions and caches them
 func (ow *OnChainWorker) fetchAndCache(ctx context.Context) {
-	if !ow.whaleAlert.IsEnabled() {
+	if !ow.provider.IsEnabled() {
 		return
 	}
-	
-	logger.Debug("fetching whale transactions...")
-	
+
+	logger.Debug("fetching whale transactions from provider",
+		zap.String("provider", ow.provider.GetName()),
+	)
+
 	startTime := time.Now()
-	
+
 	// Fetch transactions
-	transactions, err := ow.whaleAlert.FetchRecentTransactions(ctx, ow.minValueUSD)
+	transactions, err := ow.provider.FetchRecentTransactions(ctx, ow.minValueUSD)
 	if err != nil {
 		logger.Error("failed to fetch whale transactions", zap.Error(err))
 		return
 	}
-	
+
 	if len(transactions) == 0 {
 		logger.Debug("no whale transactions")
 		return
 	}
-	
+
 	// Save to database
 	saved := 0
 	highImpact := 0
-	
+
 	for _, tx := range transactions {
 		if err := ow.saveTransaction(ctx, &tx); err != nil {
 			logger.Warn("failed to save transaction",
@@ -94,10 +96,10 @@ func (ow *OnChainWorker) fetchAndCache(ctx context.Context) {
 			continue
 		}
 		saved++
-		
+
 		if tx.ImpactScore >= 7 {
 			highImpact++
-			
+
 			// Log high impact transactions
 			logger.Warn("HIGH IMPACT whale transaction",
 				zap.String("type", tx.TransactionType),
@@ -109,9 +111,9 @@ func (ow *OnChainWorker) fetchAndCache(ctx context.Context) {
 			)
 		}
 	}
-	
+
 	duration := time.Since(startTime)
-	
+
 	logger.Info("whale transactions cached",
 		zap.Int("total", len(transactions)),
 		zap.Int("saved", saved),
@@ -158,4 +160,3 @@ func (ow *OnChainWorker) GetRecentSummary(ctx context.Context, symbol string) (*
 
 	return summary, nil
 }
-

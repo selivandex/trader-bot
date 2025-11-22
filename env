@@ -1,0 +1,82 @@
+# ========================================
+# AI AGENT TRADING SYSTEM - Configuration
+# ========================================
+# Скопируй в .env: cp env .env
+# ========================================
+
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=
+DB_NAME=trader
+DB_SSLMODE=disable
+
+# Security (сгенерируй: openssl rand -base64 32)
+ENCRYPTION_KEY=
+
+# Telegram (создай через @BotFather)
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=0
+
+# AI Providers (нужен минимум один!)
+
+# DeepSeek (рекомендуется - $0.001/req)
+DEEPSEEK_API_KEY=
+DEEPSEEK_ENABLED=true
+
+# Claude ($0.02/req)
+CLAUDE_API_KEY=
+CLAUDE_ENABLED=false
+
+# OpenAI ($0.06/req)
+OPENAI_API_KEY=
+OPENAI_ENABLED=false
+
+# News
+NEWS_ENABLED=true
+REDDIT_ENABLED=true
+COINDESK_ENABLED=true
+TWITTER_ENABLED=false
+NEWS_EVALUATOR_ENABLED=true
+NEWS_EVALUATOR_PROVIDER=deepseek
+
+# On-Chain Providers (выбери минимум один)
+
+# Whale Alert (платный $50/мес, все блокчейны)
+WHALE_ALERT_API_KEY=
+WHALE_ALERT_ENABLED=false
+
+# Blockchain.com (бесплатный, BTC only)
+BLOCKCHAIN_COM_ENABLED=true
+
+# Etherscan (бесплатный с API key, USDT/ETH)
+ETHERSCAN_API_KEY=
+ETHERSCAN_ENABLED=false
+
+ONCHAIN_ENABLED=true
+ONCHAIN_MIN_VALUE_USD=1000000
+
+# Trading Defaults
+TRADING_MODE=paper
+TRADING_INITIAL_BALANCE=1000
+TRADING_MAX_POSITION_PERCENT=30
+TRADING_MAX_LEVERAGE=3
+TRADING_STOP_LOSS_PERCENT=2.0
+TRADING_TAKE_PROFIT_PERCENT=5.0
+
+# Risk
+RISK_MAX_CONSECUTIVE_LOSSES=5
+RISK_MAX_DAILY_LOSS_PERCENT=5.0
+
+# Logging
+LOG_LEVEL=info
+LOG_FILE=logs/bot.log
+
+# ========================================
+# МИНИМАЛЬНАЯ НАСТРОЙКА:
+# 1. ENCRYPTION_KEY (openssl rand -base64 32)
+# 2. TELEGRAM_BOT_TOKEN
+# 3. DEEPSEEK_API_KEY
+# 4. BLOCKCHAIN_COM_ENABLED=true (бесплатно!)
+# ========================================

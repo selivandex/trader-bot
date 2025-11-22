@@ -83,9 +83,19 @@ type NewsConfig struct {
 
 // OnChainConfig represents on-chain monitoring configuration
 type OnChainConfig struct {
-	Enabled       bool   `envconfig:"ONCHAIN_ENABLED" default:"true"`
-	WhaleAlertKey string `envconfig:"WHALE_ALERT_API_KEY" required:"false"`
-	MinValueUSD   int    `envconfig:"ONCHAIN_MIN_VALUE_USD" default:"1000000"` // $1M minimum
+	Enabled     bool `envconfig:"ONCHAIN_ENABLED" default:"true"`
+	MinValueUSD int  `envconfig:"ONCHAIN_MIN_VALUE_USD" default:"1000000"` // $1M minimum
+
+	// Provider configurations
+	WhaleAlert    OnChainProviderConfig `envconfig:"WHALE_ALERT"`
+	BlockchainCom OnChainProviderConfig `envconfig:"BLOCKCHAIN_COM"`
+	Etherscan     OnChainProviderConfig `envconfig:"ETHERSCAN"`
+}
+
+// OnChainProviderConfig represents single on-chain provider configuration
+type OnChainProviderConfig struct {
+	APIKey  string `envconfig:"API_KEY" required:"false"`
+	Enabled bool   `envconfig:"ENABLED" default:"false"`
 }
 
 // RiskConfig represents risk management parameters
@@ -98,8 +108,8 @@ type RiskConfig struct {
 
 // TelegramConfig represents Telegram bot configuration
 type TelegramConfig struct {
-	BotToken      string `envconfig:"TELEGRAM_BOT_TOKEN" required:"true"`
-	ChatID        int64  `envconfig:"TELEGRAM_CHAT_ID" required:"true"`
+	BotToken      string `envconfig:"TELEGRAM_BOT_TOKEN" required:"false"`
+	ChatID        int64  `envconfig:"TELEGRAM_CHAT_ID" required:"false" default:"0"`
 	AlertOnTrades bool   `envconfig:"TELEGRAM_ALERT_ON_TRADES" default:"true"`
 	AlertOnErrors bool   `envconfig:"TELEGRAM_ALERT_ON_ERRORS" default:"true"`
 }
@@ -109,8 +119,8 @@ type DatabaseConfig struct {
 	Host     string `envconfig:"DB_HOST" default:"localhost"`
 	Port     int    `envconfig:"DB_PORT" default:"5432"`
 	Name     string `envconfig:"DB_NAME" default:"trader"`
-	User     string `envconfig:"DB_USER" required:"true"`
-	Password string `envconfig:"DB_PASSWORD" required:"true"`
+	User     string `envconfig:"DB_USER" required:"false" default:"postgres"`
+	Password string `envconfig:"DB_PASSWORD" required:"false" default:""`
 	SSLMode  string `envconfig:"DB_SSLMODE" default:"disable"`
 }
 
@@ -139,10 +149,8 @@ func Load() (*Config, error) {
 
 // Validate checks if configuration is valid
 func (c *Config) Validate() error {
-	// Check at least one exchange is configured
-	if c.Exchanges.Binance.APIKey == "" && c.Exchanges.Bybit.APIKey == "" {
-		return fmt.Errorf("at least one exchange must be configured")
-	}
+	// Exchanges are configured per-user in DB for agents, not globally
+	// No validation needed here
 
 	// Check at least one AI provider is enabled and configured
 	aiConfigured := false
@@ -181,12 +189,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("max_daily_loss_percent must be positive")
 	}
 
-	// Validate Telegram config
-	if c.Telegram.BotToken == "" {
-		return fmt.Errorf("telegram bot token is required")
-	}
-	if c.Telegram.ChatID == 0 {
-		return fmt.Errorf("telegram chat_id is required")
+	// Telegram is optional for agents (can run without it)
+	// Just validate if provided
+	if c.Telegram.BotToken != "" && c.Telegram.ChatID == 0 {
+		return fmt.Errorf("telegram chat_id required when bot_token is set")
 	}
 
 	return nil

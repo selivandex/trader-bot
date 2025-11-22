@@ -251,8 +251,8 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 
 	// Step 3: Get current position
 	position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
-	
-	// Step 4: Execute Chain-of-Thought reasoning  
+
+	// Step 4: Execute Chain-of-Thought reasoning
 	decision, reasoningTrace, err := runner.CoTEngine.Think(ctx, marketData, position)
 	if err != nil {
 		return fmt.Errorf("thinking failed: %w", err)
@@ -343,8 +343,7 @@ func (am *AgenticManager) collectMarketData(ctx context.Context, runner *Agentic
 	}
 
 	// Get on-chain data from cache
-	// TODO: Implement on-chain summary reader from whale_transactions table
-	// For now, agents work with technical + news signals only
+	onChainData := am.getOnChainSummary(ctx, symbol)
 
 	marketData := &models.MarketData{
 		Symbol:      symbol,
@@ -352,6 +351,7 @@ func (am *AgenticManager) collectMarketData(ctx context.Context, runner *Agentic
 		Candles:     candlesMap,
 		Indicators:  technicalIndicators,
 		NewsSummary: newsSummary,
+		OnChainData: onChainData,
 		Timestamp:   time.Now(),
 	}
 
@@ -703,4 +703,74 @@ func (am *AgenticManager) CreateAgentFromPersonality(
 	)
 
 	return savedConfig, nil
+}
+
+// getOnChainSummary builds on-chain summary from cached whale data
+func (am *AgenticManager) getOnChainSummary(ctx context.Context, symbol string) *models.OnChainSummary {
+	// Get recent whale transactions from cache (last 24h, impact >= 6)
+	whaleTransactions, err := am.repository.GetRecentWhaleTransactions(ctx, symbol, 24, 6)
+	if err != nil {
+		logger.Warn("failed to get whale transactions", zap.Error(err))
+		return nil
+	}
+
+	if len(whaleTransactions) == 0 {
+		return nil // No on-chain data
+	}
+
+	// Get exchange flows
+	flows, err := am.repository.GetExchangeFlows(ctx, symbol, 24)
+	if err != nil {
+		logger.Warn("failed to get exchange flows", zap.Error(err))
+		flows = []models.ExchangeFlow{}
+	}
+
+	// Calculate net flow
+	netFlow := models.NewDecimal(0)
+	for _, flow := range flows {
+		netFlow = netFlow.Add(flow.NetFlow)
+	}
+
+	// Determine flow direction
+	flowDirection := "balanced"
+	netFlowFloat := netFlow.InexactFloat64()
+	if netFlowFloat < -1_000_000 {
+		flowDirection = "outflow" // Accumulation (bullish)
+	} else if netFlowFloat > 1_000_000 {
+		flowDirection = "inflow" // Distribution (bearish)
+	}
+
+	// Determine whale activity level
+	whaleActivity := "low"
+	highImpactCount := 0
+	for _, tx := range whaleTransactions {
+		if tx.ImpactScore >= 8 {
+			highImpactCount++
+		}
+	}
+
+	if highImpactCount >= 3 {
+		whaleActivity = "high"
+	} else if highImpactCount >= 1 || len(whaleTransactions) >= 5 {
+		whaleActivity = "medium"
+	}
+
+	summary := &models.OnChainSummary{
+		Symbol:                symbol,
+		WhaleActivity:         whaleActivity,
+		ExchangeFlowDirection: flowDirection,
+		NetExchangeFlow:       netFlow,
+		RecentWhaleMovements:  whaleTransactions,
+		UpdatedAt:             time.Now(),
+	}
+
+	logger.Debug("🐋 on-chain summary built",
+		zap.String("symbol", symbol),
+		zap.String("whale_activity", whaleActivity),
+		zap.String("flow_direction", flowDirection),
+		zap.Int("whale_count", len(whaleTransactions)),
+		zap.Float64("net_flow_usd", netFlowFloat),
+	)
+
+	return summary
 }

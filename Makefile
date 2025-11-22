@@ -1,5 +1,11 @@
 .PHONY: build test run clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate telegram-webhook-set telegram-webhook-delete telegram-webhook-info db-create db-create-test db-drop db-drop-test db-reset db-setup help
 
+# Load environment variables from .env if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 # Default target - show help
 .DEFAULT_GOAL := help
 
@@ -106,7 +112,7 @@ deps:
 	go mod download
 	go mod tidy
 
-# PostgreSQL configuration (can be overridden)
+# PostgreSQL configuration (loaded from .env, can be overridden)
 DB_HOST ?= localhost
 DB_PORT ?= 5432
 DB_USER ?= $(USER)
@@ -114,7 +120,7 @@ DB_PASSWORD ?=
 DB_NAME ?= trader
 DB_TEST_NAME ?= trader_test
 
-# Database URL for migrations
+# Database URL for migrations (constructed from .env variables)
 DB_URL ?= postgres://$(DB_USER)$(if $(DB_PASSWORD),:$(DB_PASSWORD),)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
 # Create database

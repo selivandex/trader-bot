@@ -15,6 +15,7 @@ import (
 	"github.com/alexanderselivanov/trader/internal/adapters/database"
 	"github.com/alexanderselivanov/trader/internal/adapters/news"
 	"github.com/alexanderselivanov/trader/internal/adapters/onchain"
+	"github.com/alexanderselivanov/trader/internal/adapters/price"
 	"github.com/alexanderselivanov/trader/internal/adapters/telegram"
 	"github.com/alexanderselivanov/trader/internal/agents"
 	"github.com/alexanderselivanov/trader/internal/sentiment"
@@ -305,6 +306,9 @@ func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *databas
 	workersRepo := workers.NewRepository(db.DB())
 	newsRepo := news.NewRepository(db.DB())
 
+	// Note: Prices come from Exchange API directly (FetchTicker)
+	// No separate price worker needed for agents
+
 	// Daily metrics worker
 	dailyMetrics := workers.NewDailyMetricsWorker(workersRepo)
 	go func() {
@@ -329,18 +333,48 @@ func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *databas
 		}
 	}()
 
-	// On-chain monitoring worker
+	// On-chain monitoring worker with multiple providers
 	if cfg.OnChain.Enabled {
-		whaleAlert := onchain.NewWhaleAlertProvider(cfg.OnChain.WhaleAlertKey, true)
-		if whaleAlert.IsEnabled() {
-			onchainWorker := workers.NewOnChainWorker(workersRepo, whaleAlert, 15*time.Minute, cfg.OnChain.MinValueUSD)
+		var onchainProviders []onchain.OnChainProvider
+
+		// Whale Alert (платный, все блокчейны)
+		if cfg.OnChain.WhaleAlert.Enabled {
+			whaleAlert := onchain.NewWhaleAlertProvider(cfg.OnChain.WhaleAlert.APIKey, true)
+			onchainProviders = append(onchainProviders, whaleAlert)
+			logger.Info("WhaleAlert enabled", zap.String("cost", "$0.005/req"))
+		}
+
+		// Blockchain.com (бесплатный, BTC only)
+		if cfg.OnChain.BlockchainCom.Enabled {
+			// Price provider for BTC→USD conversion
+			priceProvider := price.NewCoinGeckoProvider()
+			blockchainCom := onchain.NewBlockchainComAdapter(true, priceProvider)
+			onchainProviders = append(onchainProviders, blockchainCom)
+			logger.Info("Blockchain.com enabled", zap.String("cost", "free"), zap.String("price_api", "CoinGecko+DB"))
+		}
+
+		// Etherscan (бесплатный, USDT/ETH)
+		if cfg.OnChain.Etherscan.Enabled {
+			etherscan := onchain.NewEtherscanAdapter(cfg.OnChain.Etherscan.APIKey, true)
+			onchainProviders = append(onchainProviders, etherscan)
+			logger.Info("Etherscan enabled", zap.String("cost", "free"))
+		}
+
+		if len(onchainProviders) > 0 {
+			// Use first provider for worker (can be extended to use aggregator)
+			primaryProvider := onchainProviders[0]
+			onchainWorker := workers.NewOnChainWorker(workersRepo, primaryProvider, 15*time.Minute, cfg.OnChain.MinValueUSD)
+
 			go func() {
 				if err := onchainWorker.Start(ctx); err != nil && err != context.Canceled {
 					logger.Error("on-chain worker error", zap.Error(err))
 				}
 			}()
 
-			logger.Info("on-chain monitoring started", zap.Int("min_value_usd", cfg.OnChain.MinValueUSD))
+			logger.Info("on-chain monitoring started",
+				zap.Int("providers", len(onchainProviders)),
+				zap.Int("min_value_usd", cfg.OnChain.MinValueUSD),
+			)
 		}
 	}
 
