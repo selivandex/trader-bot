@@ -251,8 +251,8 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 
 	// Step 3: Get current position
 	position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
-
-	// Step 4: Execute Chain-of-Thought reasoning
+	
+	// Step 4: Execute Chain-of-Thought reasoning  
 	decision, reasoningTrace, err := runner.CoTEngine.Think(ctx, marketData, position)
 	if err != nil {
 		return fmt.Errorf("thinking failed: %w", err)
@@ -342,8 +342,9 @@ func (am *AgenticManager) collectMarketData(ctx context.Context, runner *Agentic
 		}
 	}
 
-	// Get on-chain data (TODO: implement on-chain cache reader)
-	// For now, agents work without on-chain data
+	// Get on-chain data from cache
+	// TODO: Implement on-chain summary reader from whale_transactions table
+	// For now, agents work with technical + news signals only
 
 	marketData := &models.MarketData{
 		Symbol:      symbol,
@@ -359,8 +360,8 @@ func (am *AgenticManager) collectMarketData(ctx context.Context, runner *Agentic
 
 // updateAgentState updates agent state in database
 func (am *AgenticManager) updateAgentState(ctx context.Context, runner *AgenticRunner) error {
-	// For now, just save state
-	// TODO: Update from portfolio tracker when implemented
+	// Update balance/equity from current state
+	// AgentState is already updated in executeDecision when trades complete
 	return am.repository.CreateAgentState(ctx, runner.State)
 }
 

@@ -45,10 +45,10 @@ func (re *ReflectionEngine) Reflect(ctx context.Context, trade *models.TradeExpe
 		zap.String("symbol", trade.Symbol),
 		zap.Float64("pnl_pct", trade.PnLPercent),
 	)
-	
+
 	// Get agent's personality context for reflection
 	systemPrompt := GetAgentSystemPrompt(re.config.Personality, re.config.Name)
-	
+
 	// Build reflection prompt with personality context
 	reflectionPrompt := &models.ReflectionPrompt{
 		AgentName:    re.config.Name + " (" + string(re.config.Personality) + ")",
@@ -116,10 +116,8 @@ func (re *ReflectionEngine) storeMemoryFromReflection(
 	trade *models.TradeExperience,
 	memorySummary *models.MemorySummary,
 ) error {
-	// Simply pass the trade experience to memory manager
-	// It will ask AI to summarize it again (which might seem redundant,
-	// but AI might create a different summary optimized for retrieval)
-	return re.memoryManager.Store(ctx, re.config.ID, trade)
+	// Store with personality for collective memory contribution
+	return re.memoryManager.Store(ctx, re.config.ID, string(re.config.Personality), trade)
 }
 
 // applyAdjustments applies AI-suggested strategy adjustments

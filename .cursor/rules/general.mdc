@@ -5,3 +5,5 @@ alwaysApply: true
 <!-- @format -->
 
 DON'T CREATE .md DOCS FILES WITHOUT MY PERMISSION
+
+Never write direct sql queries, use repository pattern!

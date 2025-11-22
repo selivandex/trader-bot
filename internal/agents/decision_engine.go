@@ -28,7 +28,7 @@ func NewDecisionEngine(config *models.AgentConfig, aiProvider ai.Provider) *Deci
 }
 
 // Analyze analyzes market data and returns agent's AI-powered decision with weighted signals
-func (e *DecisionEngine) Analyze(ctx context.Context, marketData *models.MarketData, position *models.Position) (*models.AgentDecision, error) {
+func (e *DecisionEngine) Analyze(ctx context.Context, marketData *models.MarketData, position *models.Position, balance, equity, dailyPnL float64) (*models.AgentDecision, error) {
 	logger.Debug("agent analyzing market data with AI",
 		zap.String("agent", e.config.Name),
 		zap.String("symbol", marketData.Symbol),
@@ -39,7 +39,7 @@ func (e *DecisionEngine) Analyze(ctx context.Context, marketData *models.MarketD
 	signalScores := e.signalAnalyzer.AnalyzeSignals(marketData)
 
 	// Step 2: Build specialized prompt based on agent's personality and weights
-	prompt := e.buildAgentPrompt(marketData, position, signalScores)
+	prompt := e.buildAgentPrompt(marketData, position, signalScores, balance, equity, dailyPnL)
 
 	// Step 3: Query AI provider for final decision
 	aiDecision, err := e.aiProvider.Analyze(ctx, prompt)
@@ -89,17 +89,18 @@ func (e *DecisionEngine) buildAgentPrompt(
 	marketData *models.MarketData,
 	position *models.Position,
 	signals *SignalScores,
+	balance, equity, dailyPnL float64,
 ) *models.TradingPrompt {
 	// Get agent's personality system prompt
 	systemPrompt := GetAgentSystemPrompt(e.config.Personality, e.config.Name)
 
-	// Create base prompt
+	// Create prompt with actual balance from agent state
 	prompt := &models.TradingPrompt{
 		MarketData:      marketData,
 		CurrentPosition: position,
-		Balance:         models.NewDecimal(1000), // TODO: get from agent state
-		Equity:          models.NewDecimal(1000),
-		DailyPnL:        models.NewDecimal(0),
+		Balance:         models.NewDecimal(balance),
+		Equity:          models.NewDecimal(equity),
+		DailyPnL:        models.NewDecimal(dailyPnL),
 	}
 
 	// Add agent personality to prompt

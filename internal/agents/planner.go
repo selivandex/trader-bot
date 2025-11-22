@@ -3,6 +3,8 @@ package agents
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -140,16 +142,66 @@ func (pe *PlanningEngine) ShouldRevisePlan(marketData *models.MarketData) (bool,
 
 // checkTriggerCondition checks if trigger condition is met
 func (pe *PlanningEngine) checkTriggerCondition(trigger models.TriggerSignal, marketData *models.MarketData) bool {
-	// Simplified trigger checking
-	// In production, parse and evaluate trigger conditions properly
+	condition := strings.ToLower(trigger.Condition)
 
-	// Example triggers:
-	// - "Volume spikes 3x" -> check if volume > 3x average
-	// - "Price breaks $45k" -> check if price crossed threshold
-	// - "News impact > 9" -> check high-impact news
+	// Volume triggers
+	if strings.Contains(condition, "volume") && strings.Contains(condition, "spike") {
+		if marketData.Indicators != nil && marketData.Indicators.Volume != nil {
+			ratio := marketData.Indicators.Volume.Ratio.InexactFloat64()
 
-	// For now, always return false (no triggers met)
-	// TODO: Implement proper trigger condition parsing and evaluation
+			// Parse multiplier from condition (e.g., "3x")
+			if strings.Contains(condition, "3x") && ratio > 3.0 {
+				return true
+			}
+			if strings.Contains(condition, "2x") && ratio > 2.0 {
+				return true
+			}
+		}
+	}
+
+	// Price movement triggers
+	if strings.Contains(condition, "price") && strings.Contains(condition, "%") {
+		change24h := marketData.Ticker.Change24h.InexactFloat64()
+
+		// Parse percentage (e.g., "> 5%")
+		if strings.Contains(condition, "> 5") && math.Abs(change24h) > 5.0 {
+			return true
+		}
+		if strings.Contains(condition, "> 8") && math.Abs(change24h) > 8.0 {
+			return true
+		}
+	}
+
+	// News impact triggers
+	if strings.Contains(condition, "news") && strings.Contains(condition, "impact") {
+		if marketData.NewsSummary != nil {
+			for _, item := range marketData.NewsSummary.RecentNews {
+				if strings.Contains(condition, "> 9") && item.Impact >= 9 {
+					return true
+				}
+				if strings.Contains(condition, "> 8") && item.Impact >= 8 {
+					return true
+				}
+			}
+		}
+	}
+
+	// RSI triggers
+	if strings.Contains(condition, "rsi") {
+		if marketData.Indicators != nil && marketData.Indicators.RSI != nil {
+			if rsi14, ok := marketData.Indicators.RSI["14"]; ok {
+				rsiVal := rsi14.InexactFloat64()
+
+				if strings.Contains(condition, "> 70") && rsiVal > 70 {
+					return true
+				}
+				if strings.Contains(condition, "< 30") && rsiVal < 30 {
+					return true
+				}
+			}
+		}
+	}
+
 	return false
 }
 

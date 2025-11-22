@@ -29,7 +29,8 @@ func NewSemanticMemoryManager(repository *Repository, aiProvider ai.AgenticProvi
 }
 
 // Store saves new memory from trade experience
-func (smm *SemanticMemoryManager) Store(ctx context.Context, agentID string, experience *models.TradeExperience) error {
+// Also contributes to collective memory for agent's personality
+func (smm *SemanticMemoryManager) Store(ctx context.Context, agentID string, personality string, experience *models.TradeExperience) error {
 	// Ask AI to summarize what's important to remember
 	summary, err := smm.aiProvider.SummarizeMemory(ctx, experience)
 	if err != nil {
@@ -37,10 +38,9 @@ func (smm *SemanticMemoryManager) Store(ctx context.Context, agentID string, exp
 	}
 
 	// Generate embedding for semantic search
-	// For now, use simple text embedding (could use OpenAI embeddings API later)
 	embedding := smm.generateSimpleEmbedding(summary.Context + " " + summary.Lesson)
 
-	// Create memory object
+	// 1. Store as personal memory
 	memory := &models.SemanticMemory{
 		AgentID:    agentID,
 		Context:    summary.Context,
@@ -51,18 +51,37 @@ func (smm *SemanticMemoryManager) Store(ctx context.Context, agentID string, exp
 		Importance: summary.Importance,
 	}
 
-	// Store via repository
 	err = smm.repository.StoreSemanticMemory(ctx, memory)
 	if err != nil {
 		return fmt.Errorf("failed to store memory: %w", err)
 	}
 
-	logger.Info("💾 Stored new memory",
+	logger.Info("💾 Stored personal memory",
 		zap.String("agent_id", agentID),
 		zap.String("memory_id", memory.ID),
 		zap.String("lesson", summary.Lesson),
-		zap.Float64("importance", summary.Importance),
 	)
+
+	// 2. Contribute to collective memory for this personality
+	if summary.Importance >= 0.6 { // Only contribute important lessons
+		err = smm.repository.ContributeToCollective(
+			ctx,
+			agentID,
+			personality,
+			summary,
+			embedding,
+			experience.WasSuccessful,
+		)
+		if err != nil {
+			logger.Warn("failed to contribute to collective", zap.Error(err))
+			// Don't fail the whole operation
+		} else {
+			logger.Info("🌍 Contributed to collective memory",
+				zap.String("personality", personality),
+				zap.String("lesson", summary.Lesson),
+			)
+		}
+	}
 
 	return nil
 }

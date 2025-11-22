@@ -814,18 +814,18 @@ func (r *Repository) GetCollectiveMemories(ctx context.Context, personality stri
 		ORDER BY success_rate DESC, confirmation_count DESC, importance DESC
 		LIMIT $2
 	`
-	
+
 	rows, err := r.db.QueryContext(ctx, query, personality, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query collective memories: %w", err)
 	}
 	defer rows.Close()
-	
+
 	memories := []models.CollectiveMemory{}
 	for rows.Next() {
 		var mem models.CollectiveMemory
 		var embeddingFloats pq.Float32Array
-		
+
 		err := rows.Scan(
 			&mem.ID,
 			&mem.Personality,
@@ -842,16 +842,16 @@ func (r *Repository) GetCollectiveMemories(ctx context.Context, personality stri
 		if err != nil {
 			continue
 		}
-		
+
 		embedding := make([]float32, len(embeddingFloats))
 		for i, v := range embeddingFloats {
 			embedding[i] = v
 		}
 		mem.Embedding = embedding
-		
+
 		memories = append(memories, mem)
 	}
-	
+
 	return memories, nil
 }
 
@@ -866,7 +866,7 @@ func (r *Repository) ContributeToCollective(
 ) error {
 	// Check if similar collective memory already exists
 	// If yes, confirm it. If no, create new one.
-	
+
 	query := `
 		INSERT INTO collective_agent_memories (
 			personality, context, action, lesson, embedding, importance,
@@ -875,12 +875,12 @@ func (r *Repository) ContributeToCollective(
 		ON CONFLICT DO NOTHING
 		RETURNING id
 	`
-	
+
 	successRate := 0.5
 	if wasSuccessful {
 		successRate = 1.0
 	}
-	
+
 	var collectiveID string
 	err := r.db.QueryRowContext(
 		ctx, query,
@@ -892,23 +892,170 @@ func (r *Repository) ContributeToCollective(
 		memory.Importance,
 		successRate,
 	).Scan(&collectiveID)
-	
-	// If already exists, update confirmation
+
+	// If memory already exists, update it
 	if err != nil {
-		// TODO: Find existing and update
-		return nil
+		// Find similar existing memory and update confirmation
+		return r.updateCollectiveConfirmation(ctx, agentID, personality, memory.Lesson, wasSuccessful)
 	}
-	
-	// Record confirmation
+
+	// Record confirmation for new memory
 	confirmQuery := `
 		INSERT INTO memory_confirmations (
 			collective_memory_id, agent_id, was_successful, trade_count, pnl_sum
 		) VALUES ($1, $2, $3, 1, 0)
 	`
-	
+
 	_, err = r.db.ExecContext(ctx, confirmQuery, collectiveID, agentID, wasSuccessful)
-	
+
 	return err
+}
+
+// updateCollectiveConfirmation updates existing collective memory
+func (r *Repository) updateCollectiveConfirmation(
+	ctx context.Context,
+	agentID string,
+	personality string,
+	lesson string,
+	wasSuccessful bool,
+) error {
+	// Find similar collective memory
+	findQuery := `
+		SELECT id, confirmation_count, success_rate
+		FROM collective_agent_memories
+		WHERE personality = $1
+		  AND lesson ILIKE $2
+		LIMIT 1
+	`
+
+	var collectiveID string
+	var confirmCount int
+	var successRate float64
+
+	lessonPrefix := lesson
+	if len(lesson) > 50 {
+		lessonPrefix = lesson[:50]
+	}
+
+	err := r.db.QueryRowContext(ctx, findQuery, personality, "%"+lessonPrefix+"%").
+		Scan(&collectiveID, &confirmCount, &successRate)
+
+	if err != nil {
+		return nil // Not found, that's ok
+	}
+
+	// Update confirmation count and success rate
+	newConfirmCount := confirmCount + 1
+	successFloat := 0.0
+	if wasSuccessful {
+		successFloat = 1.0
+	}
+	newSuccessRate := (successRate*float64(confirmCount) + successFloat) / float64(newConfirmCount)
+
+	updateQuery := `
+		UPDATE collective_agent_memories
+		SET confirmation_count = $1,
+		    success_rate = $2,
+		    last_confirmed_at = NOW()
+		WHERE id = $3
+	`
+
+	_, err = r.db.ExecContext(ctx, updateQuery, newConfirmCount, newSuccessRate, collectiveID)
+	if err != nil {
+		return err
+	}
+
+	// Add confirmation record
+	confirmQuery := `
+		INSERT INTO memory_confirmations (
+			collective_memory_id, agent_id, was_successful, trade_count, pnl_sum
+		) VALUES ($1, $2, $3, 1, 0)
+		ON CONFLICT (collective_memory_id, agent_id) DO UPDATE
+		SET was_successful = EXCLUDED.was_successful,
+		    trade_count = memory_confirmations.trade_count + 1,
+		    confirmed_at = NOW()
+	`
+
+	_, err = r.db.ExecContext(ctx, confirmQuery, collectiveID, agentID, wasSuccessful)
+
+	return err
+}
+
+// ========== Performance Metrics Methods ==========
+
+// GetTradeReturns gets trade returns for Sharpe ratio calculation
+func (r *Repository) GetTradeReturns(ctx context.Context, agentID, symbol string, limit int) ([]float64, error) {
+	query := `
+		SELECT (outcome->>'pnl_percent')::float as pnl_percent
+		FROM agent_decisions
+		WHERE agent_id = $1
+		  AND symbol = $2
+		  AND executed = true
+		  AND outcome IS NOT NULL
+		ORDER BY created_at DESC
+		LIMIT $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, agentID, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	returns := []float64{}
+	for rows.Next() {
+		var pnlPercent float64
+		if err := rows.Scan(&pnlPercent); err != nil {
+			continue
+		}
+		returns = append(returns, pnlPercent)
+	}
+
+	return returns, nil
+}
+
+// GetPeakEquity gets peak equity for agent
+func (r *Repository) GetPeakEquity(ctx context.Context, agentID, symbol string) (float64, error) {
+	query := `
+		SELECT COALESCE(MAX((outcome->>'equity')::float), 0) as peak_equity
+		FROM agent_decisions
+		WHERE agent_id = $1 AND symbol = $2 AND executed = true
+	`
+
+	var peakEquity float64
+	err := r.db.GetContext(ctx, &peakEquity, query, agentID, symbol)
+	return peakEquity, err
+}
+
+// GetProfitLoss gets gross profit and loss for agent
+func (r *Repository) GetProfitLoss(ctx context.Context, agentID, symbol string) (grossProfit, grossLoss float64, err error) {
+	query := `
+		SELECT 
+			COALESCE(SUM((outcome->>'pnl')::float) FILTER (WHERE (outcome->>'pnl')::float > 0), 0) as gross_profit,
+			COALESCE(ABS(SUM((outcome->>'pnl')::float) FILTER (WHERE (outcome->>'pnl')::float < 0)), 0) as gross_loss
+		FROM agent_decisions
+		WHERE agent_id = $1 AND symbol = $2 AND executed = true AND outcome IS NOT NULL
+	`
+
+	err = r.db.QueryRowContext(ctx, query, agentID, symbol).Scan(&grossProfit, &grossLoss)
+	return grossProfit, grossLoss, err
+}
+
+// GetDailyPnL calculates PnL for today
+func (r *Repository) GetDailyPnL(ctx context.Context, agentID, symbol string) (float64, error) {
+	query := `
+		SELECT COALESCE(SUM((outcome->>'pnl')::float), 0) as daily_pnl
+		FROM agent_decisions
+		WHERE agent_id = $1
+		  AND symbol = $2
+		  AND executed = true
+		  AND outcome IS NOT NULL
+		  AND created_at >= CURRENT_DATE
+	`
+
+	var dailyPnL float64
+	err := r.db.GetContext(ctx, &dailyPnL, query, agentID, symbol)
+	return dailyPnL, err
 }
 
 // GetAgentPerformanceMetrics calculates agent performance metrics

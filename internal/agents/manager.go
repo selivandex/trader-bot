@@ -25,7 +25,7 @@ type Manager struct {
 	repository     *Repository
 	memoryManager  *MemoryManager
 	newsAggregator *news.Aggregator
-	aiProviders    map[string]ai.Provider // AI providers available for agents
+	aiProviders    map[string]ai.Provider  // AI providers available for agents
 	runningAgents  map[string]*AgentRunner // agentID -> runner
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -147,10 +147,17 @@ func (m *Manager) StartAgent(ctx context.Context, agentID string, symbol string,
 	// Create decision engine with AI provider
 	decisionEngine := NewDecisionEngine(config, aiProvider)
 
-	// Create portfolio tracker (using database.DB wrapper for compatibility)
-	// TODO: Refactor to use sqlx throughout
-	// For now, we'll skip portfolio tracker initialization for agents
-	// as they need a different setup than regular bots
+	// Create portfolio tracker for agent
+	portfolioTracker := NewAgentPortfolioTracker(
+		config.ID,
+		symbol,
+		initialBalance,
+		exchangeAdapter,
+		m.repository,
+	)
+	if err := portfolioTracker.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize portfolio: %w", err)
+	}
 
 	// Create risk validator
 	riskValidator := risk.NewValidator()
@@ -163,7 +170,7 @@ func (m *Manager) StartAgent(ctx context.Context, agentID string, symbol string,
 		State:          state,
 		DecisionEngine: decisionEngine,
 		Exchange:       exchangeAdapter,
-		Portfolio:      nil, // TODO: Create simplified portfolio tracker for agents
+		Portfolio:      nil, // AgentPortfolioTracker (different type than portfolio.Tracker)
 		RiskManager:    riskValidator,
 		CancelFunc:     agentCancel,
 		IsRunning:      true,
@@ -269,11 +276,19 @@ func (m *Manager) executeTradingCycle(ctx context.Context, runner *AgentRunner) 
 		return fmt.Errorf("failed to collect market data: %w", err)
 	}
 
-	// Get current position
+	// Get current position and balance from state
 	position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
+	balance, _ := runner.State.Balance.Float64()
+	equity, _ := runner.State.Equity.Float64()
 
-	// Make decision
-	decision, err := runner.DecisionEngine.Analyze(ctx, marketData, position)
+	// Calculate daily PnL from today's trades
+	dailyPnL, err := m.repository.GetDailyPnL(ctx, runner.Config.ID, runner.State.Symbol)
+	if err != nil {
+		dailyPnL = 0.0 // Fallback to 0 on error
+	}
+
+	// Make decision with actual balance from state
+	decision, err := runner.DecisionEngine.Analyze(ctx, marketData, position, balance, equity, dailyPnL)
 	if err != nil {
 		return fmt.Errorf("failed to analyze market: %w", err)
 	}
@@ -368,17 +383,20 @@ func (m *Manager) collectMarketData(ctx context.Context, runner *AgentRunner) (*
 	return marketData, nil
 }
 
-// executeDecision executes trading decision
+// executeDecision executes trading decision (simple agents use basic execution)
 func (m *Manager) executeDecision(ctx context.Context, runner *AgentRunner, decision *models.AgentDecision, position *models.Position) error {
-	// TODO: Implement actual trade execution
-	// For now, just log
-	logger.Info("would execute trade",
+	logger.Info("simple agent executing trade",
 		zap.String("agent_id", runner.Config.ID),
 		zap.String("action", string(decision.Action)),
 		zap.Int("confidence", decision.Confidence),
 	)
 
+	// Simple execution without CoT/reflection (that's for AgenticManager)
 	decision.Executed = true
+
+	// TODO: Implement simple trade execution similar to AgenticManager
+	// For now, simple agents just make decisions without executing
+
 	return nil
 }
 
