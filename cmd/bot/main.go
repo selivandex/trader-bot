@@ -53,15 +53,10 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	// Load configuration
-	cfg, err := config.Load()
+	// Load configuration and initialize logger
+	cfg, err := initConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Initialize logger
-	if err := logger.Init(cfg.Logging.Level, cfg.Logging.File); err != nil {
-		return fmt.Errorf("failed to initialize logger: %w", err)
+		return err
 	}
 	defer logger.Sync()
 
@@ -69,30 +64,22 @@ func run(ctx context.Context) error {
 		zap.String("mode", cfg.Mode.Mode),
 	)
 
-	// Initialize database
-	db, err := initDatabase(cfg)
+	// Initialize core infrastructure
+	db, redisClient, err := initInfrastructure(cfg)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-
-	// Initialize Redis (for distributed locking)
-	redisClient, err := initRedis(cfg)
-	if err != nil {
-		return err
-	}
 	defer redisClient.Close()
 
-	// Initialize AI providers
+	// Initialize AI providers and market systems
 	aiProviders, err := initAIProviders(cfg)
 	if err != nil {
 		return err
 	}
 
-	// Initialize market data repository
 	marketRepo := market.NewRepository(db.DB())
 
-	// Initialize news system
 	newsAggregator, err := initNewsSystem(ctx, cfg, db, aiProviders)
 	if err != nil {
 		return err
@@ -101,26 +88,130 @@ func run(ctx context.Context) error {
 	// Start background workers
 	startBackgroundWorkers(ctx, cfg, db, marketRepo)
 
-	// Initialize AGENTIC AI Manager (autonomous agents only)
-	agenticManager := agents.NewAgenticManager(db.DB(), redisClient, marketRepo, newsAggregator, aiProviders)
+	// Initialize repositories
+	repos := initRepositories(db)
 
-	// Initialize User Repository
-	userRepo := users.NewAgentsRepository(db)
+	// Initialize Telegram system (templates and notifier)
+	templateManager, notifier := initTelegramSystem(cfg, repos.userRepo)
 
-	// Initialize Agent Repository
-	agentRepo := agents.NewRepository(db.DB())
+	// Initialize and start agent system
+	agenticManager := initAgenticSystem(ctx, cfg, db, redisClient, marketRepo, newsAggregator, aiProviders, notifier)
 
-	// Initialize and start Health Check Server
+	// Start health server
 	healthServer := startHealthServer(cfg, db, redisClient, agenticManager, len(aiProviders))
 
-	// Initialize and start Telegram Bot for agent management
-	startTelegramBot(ctx, cfg, agenticManager, userRepo, agentRepo)
+	// Start Telegram bot for management
+	startTelegramBot(ctx, cfg, agenticManager, repos.userRepo, repos.agentRepo, repos.adminRepo, templateManager)
 
 	// Wait for shutdown signal
 	<-ctx.Done()
 
 	// Perform graceful shutdown
 	return performGracefulShutdown(healthServer, agenticManager, db, redisClient)
+}
+
+// repositorySet holds all initialized repositories
+type repositorySet struct {
+	userRepo  *users.AgentsRepository
+	agentRepo *agents.Repository
+	adminRepo *users.AdminRepository
+}
+
+// initConfig loads configuration and initializes logger
+func initConfig() (*config.Config, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := logger.Init(cfg.Logging.Level, cfg.Logging.File); err != nil {
+		return nil, fmt.Errorf("failed to initialize logger: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// initInfrastructure initializes database and Redis connections
+func initInfrastructure(cfg *config.Config) (*database.DB, *redisAdapter.Client, error) {
+	db, err := initDatabase(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	redisClient, err := initRedis(cfg)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+
+	return db, redisClient, nil
+}
+
+// initRepositories initializes all repository instances
+func initRepositories(db *database.DB) *repositorySet {
+	return &repositorySet{
+		userRepo:  users.NewAgentsRepository(db),
+		agentRepo: agents.NewRepository(db.DB()),
+		adminRepo: users.NewAdminRepository(db.DB()),
+	}
+}
+
+// initTelegramSystem initializes Telegram templates and notifier
+func initTelegramSystem(cfg *config.Config, userRepo *users.AgentsRepository) (*telegram.TemplateManager, agents.Notifier) {
+	if cfg.Telegram.BotToken == "" {
+		return nil, nil
+	}
+
+	templateManager, err := telegram.NewTemplateManager("./templates/telegram")
+	if err != nil {
+		logger.Warn("failed to load telegram templates", zap.Error(err))
+		return nil, nil
+	}
+
+	notifier, err := telegram.NewNotifier(cfg.Telegram.BotToken, userRepo, &cfg.Telegram, templateManager)
+	if err != nil {
+		logger.Warn("failed to initialize telegram notifier", zap.Error(err))
+		return templateManager, nil
+	}
+
+	logger.Info("📱 Telegram notifier initialized")
+	return templateManager, notifier
+}
+
+// initAgenticSystem initializes agent manager and recovers running agents
+func initAgenticSystem(
+	ctx context.Context,
+	cfg *config.Config,
+	db *database.DB,
+	redisClient *redisAdapter.Client,
+	marketRepo *market.Repository,
+	newsAggregator *news.Aggregator,
+	aiProviders []ai.Provider,
+	notifier agents.Notifier,
+) *agents.AgenticManager {
+	lockFactory := redisClient.GetLockFactory()
+	agenticManager := agents.NewAgenticManager(
+		db.DB(),
+		redisClient,
+		lockFactory,
+		marketRepo,
+		newsAggregator,
+		aiProviders,
+		notifier,
+	)
+
+	exchangeFactory := createExchangeFactory(cfg)
+
+	// Restore running agents from database (pod recovery)
+	if err := agenticManager.RestoreRunningAgents(ctx, exchangeFactory); err != nil {
+		logger.Error("failed to restore agents", zap.Error(err))
+		// Continue anyway - new agents can still be created
+	}
+
+	// Start periodic agent recovery worker (safety net)
+	startAgentRecoveryWorker(ctx, agenticManager, exchangeFactory)
+
+	return agenticManager
 }
 
 // initDatabase initializes database connection with sqlx
@@ -436,13 +527,13 @@ func startHealthServer(cfg *config.Config, db *database.DB, redisClient *redisAd
 }
 
 // startTelegramBot initializes and starts Telegram bot for agent management
-func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository) {
+func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository, adminRepo *users.AdminRepository, templateManager *telegram.TemplateManager) {
 	if cfg.Telegram.BotToken == "" {
 		logger.Info("telegram bot disabled (no token provided)")
 		return
 	}
 
-	agentBot, err := telegram.NewAgentBot(cfg, agenticManager, userRepo, agentRepo)
+	agentBot, err := telegram.NewAgentBot(cfg, agenticManager, userRepo, agentRepo, adminRepo, templateManager)
 	if err != nil {
 		logger.Error("failed to create telegram bot", zap.Error(err))
 		return
@@ -454,7 +545,9 @@ func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *a
 		}
 	}()
 
-	logger.Info("📱 Telegram bot started for agent control")
+	logger.Info("📱 Telegram bot started for agent control",
+		zap.Bool("admin_enabled", cfg.Telegram.AdminID != 0),
+	)
 }
 
 // performGracefulShutdown handles graceful shutdown of all components
@@ -507,14 +600,33 @@ func performGracefulShutdown(healthServer *health.Server, agenticManager *agents
 	return nil
 }
 
-// TODO: Create Telegram bot for agent management
-// Commands needed:
-// /start - Register user
-// /connect <exchange> <api_key> <api_secret> - Connect exchange
-// /add_ticker <symbol> <budget> - Add trading pair
-// /create_agent <personality> <name> - Create agent
-// /assign_agent <agent_id> <symbol> <budget> - Assign agent to symbol
-// /start_agent <agent_id> - Start agent trading
-// /stop_agent <agent_id> - Stop agent
-// /agents - List all agents
-// /stats - View performance
+// createExchangeFactory creates a factory function for exchange adapters (used for agent recovery)
+func createExchangeFactory(cfg *config.Config) func(string, string, string, bool) (exchange.Exchange, error) {
+	return func(exchangeName, apiKey, apiSecret string, testnet bool) (exchange.Exchange, error) {
+		switch exchangeName {
+		case "binance":
+			return exchange.NewBinanceAdapter(apiKey, apiSecret, testnet, &cfg.Exchanges.Binance)
+		case "bybit":
+			return exchange.NewBybitAdapter(apiKey, apiSecret, testnet, &cfg.Exchanges.Bybit)
+		default:
+			return nil, fmt.Errorf("unsupported exchange: %s", exchangeName)
+		}
+	}
+}
+
+// startAgentRecoveryWorker starts periodic agent recovery worker
+// This worker periodically checks for agents that should be running but aren't (safety net)
+func startAgentRecoveryWorker(ctx context.Context, agenticManager *agents.AgenticManager, exchangeFactory func(string, string, string, bool) (exchange.Exchange, error)) {
+	recoveryInterval := 5 * time.Minute
+	recoveryWorker := workers.NewAgentRecoveryWorker(agenticManager, exchangeFactory, recoveryInterval)
+
+	go func() {
+		if err := recoveryWorker.Start(ctx); err != nil && err != context.Canceled {
+			logger.Error("agent recovery worker error", zap.Error(err))
+		}
+	}()
+
+	logger.Info("🔄 periodic agent recovery worker started",
+		zap.Duration("interval", recoveryInterval),
+	)
+}

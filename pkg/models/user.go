@@ -8,13 +8,16 @@ import (
 
 // User represents registered bot user
 type User struct {
-	ID         string    `json:"id" db:"id"` // UUID
-	TelegramID int64     `json:"telegram_id" db:"telegram_id"`
-	Username   string    `json:"username" db:"username"`
-	FirstName  string    `json:"first_name" db:"first_name"`
-	IsActive   bool      `json:"is_active" db:"is_active"`
-	CreatedAt  time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
+	ID         string     `json:"id" db:"id"` // UUID
+	TelegramID int64      `json:"telegram_id" db:"telegram_id"`
+	Username   string     `json:"username" db:"username"`
+	FirstName  string     `json:"first_name" db:"first_name"`
+	IsActive   bool       `json:"is_active" db:"is_active"`
+	IsBanned   bool       `json:"is_banned" db:"is_banned"`
+	BanReason  string     `json:"ban_reason,omitempty" db:"ban_reason"`
+	BannedAt   *time.Time `json:"banned_at,omitempty" db:"banned_at"`
+	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // UserExchange represents user's exchange connection

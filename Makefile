@@ -1,4 +1,4 @@
-.PHONY: build test run clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate telegram-webhook-set telegram-webhook-delete telegram-webhook-info db-create db-create-test db-drop db-drop-test db-reset db-setup help
+.PHONY: build test run clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate telegram-webhook-set telegram-webhook-delete telegram-webhook-info db-create db-create-test db-drop db-drop-test db-reset db-setup db-test help
 
 # Load environment variables from .env if it exists
 ifneq (,$(wildcard .env))
@@ -19,6 +19,7 @@ help:
 	@echo "  make install-migrate    - Install golang-migrate CLI tool"
 	@echo ""
 	@echo "🗄️  Database Management:"
+	@echo "  make db-test            - Test database connection"
 	@echo "  make db-create          - Create database"
 	@echo "  make db-setup           - Create database + run migrations"
 	@echo "  make db-reset           - Drop, recreate and migrate database (⚠️  deletes all data!)"
@@ -63,23 +64,27 @@ test:
 	go test -v -short -race ./internal/... ./pkg/...
 
 # Run all tests with PostgreSQL database (integration tests)
+# Uses existing PostgreSQL instance from .env configuration
 test-db:
-	@echo "🐘 Starting test database..."
-	@docker-compose -f docker-compose.test.yml up -d
-	@echo "⏳ Waiting for PostgreSQL..."
-	@sleep 3
-	@until docker-compose -f docker-compose.test.yml exec -T postgres-test pg_isready -U trader > /dev/null 2>&1; do \
-		echo "Waiting..."; \
-		sleep 1; \
-	done
-	@echo "✅ Database ready!"
+	@echo "🐘 Preparing test database..."
+	@echo "   Using: $(DB_USER)@$(DB_HOST):$(DB_PORT)"
+	@echo ""
+	@echo "📦 Creating test database '$(DB_TEST_NAME)'..."
+	@PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -tc \
+		"SELECT 1 FROM pg_database WHERE datname = '$(DB_TEST_NAME)'" | grep -q 1 || \
+		PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "CREATE DATABASE $(DB_TEST_NAME);"
+	@echo "✅ Test database created!"
+	@echo ""
+	@echo "⬆️  Running migrations on test database..."
+	@migrate -path=./migrations -database "postgres://$(DB_USER)$(if $(DB_PASSWORD),:$(DB_PASSWORD),)@$(DB_HOST):$(DB_PORT)/$(DB_TEST_NAME)?sslmode=disable" up > /dev/null 2>&1
+	@echo "✅ Migrations applied!"
 	@echo ""
 	@echo "🧪 Running all tests..."
-	@TEST_DATABASE_URL="host=localhost port=5433 user=trader password=trader dbname=trader_test sslmode=disable" \
-		go test -v -race ./... || (docker-compose -f docker-compose.test.yml down -v && exit 1)
+	@TEST_DATABASE_URL="host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB_PASSWORD) dbname=$(DB_TEST_NAME) sslmode=disable" \
+		go test -v -race ./... || (echo "❌ Tests failed!"; PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_TEST_NAME);" 2>/dev/null; exit 1)
 	@echo ""
-	@echo "🧹 Cleaning up..."
-	@docker-compose -f docker-compose.test.yml down -v
+	@echo "🧹 Cleaning up test database..."
+	@PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_TEST_NAME);" 2>/dev/null || true
 	@echo "✅ All tests passed!"
 
 # Run with coverage
@@ -123,20 +128,38 @@ DB_TEST_NAME ?= trader_test
 # Database URL for migrations (constructed from .env variables)
 DB_URL ?= postgres://$(DB_USER)$(if $(DB_PASSWORD),:$(DB_PASSWORD),)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
+# Test database connection
+db-test:
+	@echo "🧪 Testing database connection..."
+	@echo "   Host: $(DB_HOST)"
+	@echo "   Port: $(DB_PORT)"
+	@echo "   User: $(DB_USER)"
+	@echo "   Password set: $$(if [ -n '$(DB_PASSWORD)' ]; then echo 'YES (length: $$(echo '$(DB_PASSWORD)' | wc -c | xargs))'; else echo 'NO'; fi)"
+	@echo ""
+	@echo "Attempting connection..."
+	@PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "SELECT current_user, version();" && echo "✅ Connection successful!" || echo "❌ Connection failed!"
+
 # Create database
 db-create:
 	@echo "📦 Creating database '$(DB_NAME)'..."
-	@psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -tc \
+	@echo "🔍 Debug config:"
+	@echo "   Host: $(DB_HOST)"
+	@echo "   Port: $(DB_PORT)"
+	@echo "   User: $(DB_USER)"
+	@echo "   Password length: $$(echo '$(DB_PASSWORD)' | wc -c)"
+	@echo "   Database: $(DB_NAME)"
+	@echo ""
+	@PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -tc \
 		"SELECT 1 FROM pg_database WHERE datname = '$(DB_NAME)'" | grep -q 1 || \
-		psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "CREATE DATABASE $(DB_NAME);"
+		PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "CREATE DATABASE $(DB_NAME);"
 	@echo "✅ Database '$(DB_NAME)' ready!"
 
 # Create test database
 db-create-test:
 	@echo "📦 Creating test database '$(DB_TEST_NAME)'..."
-	@psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -tc \
+	@PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -tc \
 		"SELECT 1 FROM pg_database WHERE datname = '$(DB_TEST_NAME)'" | grep -q 1 || \
-		psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "CREATE DATABASE $(DB_TEST_NAME);"
+		PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "CREATE DATABASE $(DB_TEST_NAME);"
 	@echo "✅ Test database '$(DB_TEST_NAME)' ready!"
 
 # Drop database (careful!)
@@ -144,7 +167,7 @@ db-drop:
 	@echo "⚠️  Dropping database '$(DB_NAME)'..."
 	@read -p "Are you sure? This will delete all data! (yes/NO): " confirm; \
 	if [ "$$confirm" = "yes" ]; then \
-		psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_NAME);"; \
+		PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_NAME);"; \
 		echo "✅ Database '$(DB_NAME)' dropped"; \
 	else \
 		echo "❌ Aborted"; \
@@ -153,7 +176,7 @@ db-drop:
 # Drop test database
 db-drop-test:
 	@echo "🗑️  Dropping test database '$(DB_TEST_NAME)'..."
-	@psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_TEST_NAME);" 2>/dev/null || true
+	@PGPASSWORD='$(DB_PASSWORD)' psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_TEST_NAME);" 2>/dev/null || true
 	@echo "✅ Test database dropped"
 
 # Reset database (drop + create + migrate)

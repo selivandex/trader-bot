@@ -8,16 +8,15 @@ import (
 
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
 	"github.com/selivandex/trader-bot/internal/adapters/news"
-	"github.com/selivandex/trader-bot/internal/sentiment"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // NewsWorker continuously fetches and caches news in background
+// Only uses AI evaluation, no keyword-based scoring
 type NewsWorker struct {
 	aggregator      *news.Aggregator
 	cache           *news.Cache
-	impactScorer    *sentiment.ImpactScorer
 	newsEvaluator   ai.NewsEvaluatorInterface
 	useAIEvaluation bool
 	interval        time.Duration
@@ -25,6 +24,7 @@ type NewsWorker struct {
 }
 
 // NewNewsWorker creates new news worker
+// Requires AI evaluator - no keyword-based scoring
 func NewNewsWorker(
 	aggregator *news.Aggregator,
 	cache *news.Cache,
@@ -35,7 +35,6 @@ func NewNewsWorker(
 	return &NewsWorker{
 		aggregator:      aggregator,
 		cache:           cache,
-		impactScorer:    sentiment.NewImpactScorer(),
 		newsEvaluator:   newsEvaluator,
 		useAIEvaluation: newsEvaluator != nil,
 		interval:        interval,
@@ -94,33 +93,51 @@ func (w *NewsWorker) fetchAndCache(ctx context.Context) {
 		return
 	}
 
-	// Score impact for each news item
+	// Evaluate news with AI only (no keyword fallback)
+	if !w.useAIEvaluation {
+		logger.Warn("AI evaluation disabled, news will be saved without impact scores")
+	}
+
+	// Collect successfully evaluated news items
+	evaluatedNews := make([]models.NewsItem, 0, len(summary.RecentNews))
+	failedCount := 0
+
 	for i := range summary.RecentNews {
 		if w.useAIEvaluation {
-			// Use AI to evaluate news (more accurate but costs API calls)
 			if err := w.newsEvaluator.EvaluateNews(ctx, &summary.RecentNews[i]); err != nil {
-				logger.Warn("AI news evaluation failed, using keyword-based",
+				logger.Error("AI news evaluation failed, skipping news item",
 					zap.String("title", summary.RecentNews[i].Title),
 					zap.Error(err),
 				)
-				// Fallback to keyword scoring
-				w.impactScorer.ScoreNewsItem(&summary.RecentNews[i])
+				failedCount++
+				continue
 			}
-		} else {
-			// Use keyword-based scoring (faster, free)
-			w.impactScorer.ScoreNewsItem(&summary.RecentNews[i])
 		}
+		// Add to evaluated list (with AI scores or default impact=5)
+		evaluatedNews = append(evaluatedNews, summary.RecentNews[i])
+	}
+
+	if failedCount > 0 {
+		logger.Warn("some news items failed AI evaluation",
+			zap.Int("failed", failedCount),
+			zap.Int("successful", len(evaluatedNews)),
+		)
+	}
+
+	if len(evaluatedNews) == 0 {
+		logger.Warn("no news items to cache after AI evaluation")
+		return
 	}
 	
-	// Cache news items with impact scores
-	if err := w.cache.Save(ctx, summary.RecentNews); err != nil {
+	// Cache only successfully evaluated news items
+	if err := w.cache.Save(ctx, evaluatedNews); err != nil {
 		logger.Error("failed to cache news", zap.Error(err))
 		return
 	}
 	
 	// Log high impact news
 	highImpact := 0
-	for _, item := range summary.RecentNews {
+	for _, item := range evaluatedNews {
 		if item.Impact >= 7 {
 			highImpact++
 			logger.Info("high impact news detected",
@@ -135,7 +152,9 @@ func (w *NewsWorker) fetchAndCache(ctx context.Context) {
 	duration := time.Since(startTime)
 
 	logger.Info("news cached successfully",
-		zap.Int("total_items", summary.TotalItems),
+		zap.Int("total_fetched", summary.TotalItems),
+		zap.Int("cached", len(evaluatedNews)),
+		zap.Int("high_impact", highImpact),
 		zap.String("sentiment", summary.OverallSentiment),
 		zap.Float64("score", summary.AverageSentiment),
 		zap.Duration("duration", duration),

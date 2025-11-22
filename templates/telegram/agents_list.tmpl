@@ -1,0 +1,10 @@
+🤖 *Your AI Agents:*
+
+{{ range .Agents }}{{ .Emoji }} *{{ .Name }}*
+   ID: `{{ .ShortID }}...`
+   Status: {{ .Status }}
+   Personality: {{ .Personality }}
+
+{{ end }}
+💡 /start_agent ID | /stop_agent ID | /stats ID
+

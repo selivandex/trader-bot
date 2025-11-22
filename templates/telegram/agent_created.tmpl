@@ -1,0 +1,19 @@
+✅ Agent created!
+
+{{ .Emoji }} *{{ .Name }}* (ID: {{ .ShortID }})
+Personality: {{ .Personality }}
+
+📊 Strategy:
+• Position: {{ printf "%.0f" .MaxPosition }}%
+• Leverage: {{ .MaxLeverage }}x
+• Stop Loss: {{ printf "%.1f" .StopLoss }}%
+• Take Profit: {{ printf "%.1f" .TakeProfit }}%
+
+🎯 Signal Weights:
+• Technical: {{ printf "%.0f" .TechnicalWeight }}%
+• News: {{ printf "%.0f" .NewsWeight }}%
+• On-Chain: {{ printf "%.0f" .OnChainWeight }}%
+• Sentiment: {{ printf "%.0f" .SentimentWeight }}%
+
+Next: /assign_agent {{ .ShortID }} BTC/USDT 500
+

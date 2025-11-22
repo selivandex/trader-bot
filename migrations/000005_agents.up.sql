@@ -193,9 +193,27 @@ SELECT
 FROM agent_tournaments at
 WHERE at.is_active = false AND at.results IS NOT NULL;
 
+-- Agent-Symbol assignments (which agents trade which symbols)
+-- Moved here from 000001 because it depends on agent_configs
+CREATE TABLE IF NOT EXISTS agent_symbol_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    agent_id UUID NOT NULL REFERENCES agent_configs(id) ON DELETE CASCADE,
+    trading_pair_id UUID NOT NULL REFERENCES user_trading_pairs(id) ON DELETE CASCADE,
+    budget DECIMAL(20, 8) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(agent_id, trading_pair_id)
+);
+
+CREATE INDEX idx_agent_assignments_user_id ON agent_symbol_assignments(user_id);
+CREATE INDEX idx_agent_assignments_agent_id ON agent_symbol_assignments(agent_id);
+CREATE INDEX idx_agent_assignments_active ON agent_symbol_assignments(is_active);
+
 COMMENT ON TABLE agent_configs IS 'AI agent configurations with personality and strategy parameters';
 COMMENT ON TABLE agent_states IS 'Current trading state for each agent-symbol pair';
 COMMENT ON TABLE agent_decisions IS 'Historical decisions made by agents with weighted scores';
 COMMENT ON TABLE agent_memory IS 'Learning data for agent adaptation';
 COMMENT ON TABLE agent_tournaments IS 'Agent competitions with multiple participants';
+COMMENT ON TABLE agent_symbol_assignments IS 'Which agents are trading which symbols for which users';
 

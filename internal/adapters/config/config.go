@@ -153,9 +153,9 @@ type RiskConfig struct {
 // TelegramConfig represents Telegram bot configuration
 type TelegramConfig struct {
 	BotToken      string `envconfig:"TELEGRAM_BOT_TOKEN" required:"false"`
-	ChatID        int64  `envconfig:"TELEGRAM_CHAT_ID" required:"false" default:"0"`
 	AlertOnTrades bool   `envconfig:"TELEGRAM_ALERT_ON_TRADES" default:"true"`
 	AlertOnErrors bool   `envconfig:"TELEGRAM_ALERT_ON_ERRORS" default:"true"`
+	AdminID       int64  `envconfig:"TELEGRAM_ADMIN_ID" default:"0"` // Telegram ID of system admin (0 = no admin)
 }
 
 // DatabaseConfig represents database connection parameters
@@ -247,10 +247,7 @@ func (c *Config) Validate() error {
 	}
 
 	// Telegram is optional for agents (can run without it)
-	// Just validate if provided
-	if c.Telegram.BotToken != "" && c.Telegram.ChatID == 0 {
-		return fmt.Errorf("telegram chat_id required when bot_token is set")
-	}
+	// Bot will send notifications to users who interact with it
 
 	return nil
 }

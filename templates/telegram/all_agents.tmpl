@@ -1,0 +1,12 @@
+🤖 *All Agents:*
+
+{{ range .Agents }}{{ .Emoji }} *{{ .Name }}* by @{{ .Username }}
+   ID: `{{ .ShortID }}...`
+   Trades: {{ .TotalTrades }} | WR: {{ printf "%.1f" .WinRate }}% | P&L: ${{ printf "%.2f" .TotalProfit }}
+   Last: {{ .LastTrade }}
+
+{{ end }}{{ if .HasMore }}
+_...and {{ .MoreCount }} more_
+{{ end }}
+💡 /stop_any_agent <agent_id>
+

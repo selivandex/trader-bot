@@ -1,0 +1,11 @@
+👥 *All Users:*
+
+{{ range .Users }}{{ .Status }} *@{{ .Username }}* (ID: {{ .TelegramID }})
+   Agents: {{ .ActiveAgents }}/{{ .TotalAgents }} | Trades: {{ .TotalTrades }} | P&L: ${{ printf "%.2f" .TotalProfit }}
+   Registered: {{ .RegisteredAt }}
+
+{{ end }}{{ if .HasMore }}
+_...and {{ .MoreCount }} more_
+{{ end }}
+💡 /user_info <telegram_id> for details
+

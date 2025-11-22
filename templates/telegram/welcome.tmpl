@@ -1,0 +1,21 @@
+🤖 *Welcome to AI Agent Trading System!*
+
+You are registered as: {{ .Username }}
+
+*Setup Steps:*
+1️⃣ Connect exchange: /connect binance YOUR_API_KEY YOUR_SECRET
+2️⃣ Add trading pair: /add_ticker BTC/USDT 1000
+3️⃣ Create agent: /create_agent conservative "Technical Tom"
+4️⃣ Assign agent: /assign_agent AGENT_ID BTC/USDT 500
+5️⃣ Start trading: /start_agent AGENT_ID
+
+*Trading Modes:*
+🟢 Live: /start_agent AGENT_ID
+📝 Paper (Virtual): /start_agent AGENT_ID --paper
+
+*Commands:*
+/personalities - View agent types
+/agents - List your agents
+/stats AGENT_ID - Agent performance
+/stop_agent AGENT_ID - Stop agent
+

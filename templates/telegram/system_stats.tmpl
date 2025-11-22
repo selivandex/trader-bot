@@ -1,0 +1,25 @@
+📊 *System Statistics*
+
+👥 *Users:*
+• Total: {{ .TotalUsers }}
+• Active: {{ .ActiveUsers }} ({{ printf "%.1f" .ActiveUsersPercent }}%)
+
+🤖 *Agents:*
+• Total: {{ .TotalAgents }}
+• Active: {{ .ActiveAgents }} ({{ printf "%.1f" .ActiveAgentsPercent }}%)
+
+💰 *Trading:*
+• Total Trades: {{ .TotalTrades }}
+• Win Rate: {{ printf "%.1f" .WinRate }}%
+• Total Volume: ${{ printf "%.2f" .TotalVolume }}
+• Total P&L: ${{ printf "%.2f" .TotalProfit }}
+{{ if .TopAgent }}
+🏆 *Top Agent:*
+• {{ .TopAgent.Name }} by @{{ .TopAgent.Username }}
+• Profit: ${{ printf "%.2f" .TopAgent.Profit }} ({{ printf "%.1f" .TopAgent.WinRate }}% WR)
+{{ end }}{{ if .WorstAgent }}
+📉 *Worst Agent:*
+• {{ .WorstAgent.Name }} by @{{ .WorstAgent.Username }}
+• Loss: ${{ printf "%.2f" .WorstAgent.Profit }}
+{{ end }}
+

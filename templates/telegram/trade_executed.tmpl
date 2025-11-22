@@ -1,0 +1,11 @@
+{{ .Emoji }} *Trade Executed*
+
+🤖 Agent: {{ .AgentName }}
+📊 Action: {{ .Action }}
+💱 Symbol: {{ .Symbol }}
+📦 Size: {{ printf "%.4f" .Size }}
+💰 Price: ${{ printf "%.2f" .Price }}
+💵 PnL: {{ .PnLSign }}${{ printf "%.2f" .PnL }}
+
+⏰ {{ .Time }}
+

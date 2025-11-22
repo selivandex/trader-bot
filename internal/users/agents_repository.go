@@ -296,3 +296,20 @@ func (r *AgentsRepository) GetAgentAssignments(ctx context.Context, userID strin
 
 	return assignments, nil
 }
+
+// GetTelegramIDByUserID returns telegram_id for given user_id
+func (r *AgentsRepository) GetTelegramIDByUserID(ctx context.Context, userID string) (int64, error) {
+	query := `
+		SELECT telegram_id
+		FROM users
+		WHERE id = $1 AND is_active = true
+	`
+
+	var telegramID int64
+	err := r.db.DB().QueryRowContext(ctx, query, userID).Scan(&telegramID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get telegram ID: %w", err)
+	}
+
+	return telegramID, nil
+}

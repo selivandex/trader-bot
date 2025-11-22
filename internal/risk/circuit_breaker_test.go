@@ -64,10 +64,12 @@ func TestCircuitBreaker_RecordTrade(t *testing.T) {
 	t.Run("win resets consecutive losses", func(t *testing.T) {
 		cb.Reset()
 		
-		cb.RecordTrade(-20, initialBalance)
-		cb.RecordTrade(-20, initialBalance)
-		cb.RecordTrade(30, initialBalance) // Win resets counter
-		cb.RecordTrade(-20, initialBalance)
+		// Use smaller losses to avoid triggering daily loss limit (5%)
+		// 3 losses of -10 = 30 total = 3% < 5%
+		cb.RecordTrade(-10, initialBalance)
+		cb.RecordTrade(-10, initialBalance)
+		cb.RecordTrade(30, initialBalance) // Win resets consecutive counter
+		cb.RecordTrade(-10, initialBalance) // Only 1 consecutive loss after win
 		
 		if cb.IsOpen() {
 			t.Error("Circuit breaker should not be open - counter was reset by win")

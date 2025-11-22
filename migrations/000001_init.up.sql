@@ -53,22 +53,6 @@ CREATE INDEX idx_user_trading_pairs_user_id ON user_trading_pairs(user_id);
 CREATE INDEX idx_user_trading_pairs_symbol ON user_trading_pairs(symbol);
 CREATE INDEX idx_user_trading_pairs_is_active ON user_trading_pairs(is_active);
 
--- Agent-Symbol assignments (which agents trade which symbols)
-CREATE TABLE IF NOT EXISTS agent_symbol_assignments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    agent_id UUID NOT NULL REFERENCES agent_configs(id) ON DELETE CASCADE,
-    trading_pair_id UUID NOT NULL REFERENCES user_trading_pairs(id) ON DELETE CASCADE,
-    budget DECIMAL(20, 8) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(agent_id, trading_pair_id)
-);
-
-CREATE INDEX idx_agent_assignments_user_id ON agent_symbol_assignments(user_id);
-CREATE INDEX idx_agent_assignments_agent_id ON agent_symbol_assignments(agent_id);
-CREATE INDEX idx_agent_assignments_active ON agent_symbol_assignments(is_active);
-
 -- Triggers for updated_at
 CREATE OR REPLACE FUNCTION update_timestamp()
 RETURNS TRIGGER AS $$
@@ -97,4 +81,3 @@ EXECUTE FUNCTION update_timestamp();
 COMMENT ON TABLE users IS 'Telegram users who can create and manage AI agents';
 COMMENT ON TABLE user_exchanges IS 'User exchange API credentials (one per exchange)';
 COMMENT ON TABLE user_trading_pairs IS 'Trading pairs user wants to trade with budget allocation';
-COMMENT ON TABLE agent_symbol_assignments IS 'Which agents are trading which symbols for which users';

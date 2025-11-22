@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -20,15 +21,17 @@ import (
 
 // AgentBot handles Telegram commands for AI agents
 type AgentBot struct {
-	api            *tgbotapi.BotAPI
-	cfg            *config.Config
-	agenticManager *agents.AgenticManager
-	userRepo       *users.AgentsRepository
-	agentRepo      *agents.Repository
+	api             *tgbotapi.BotAPI
+	cfg             *config.Config
+	agenticManager  *agents.AgenticManager
+	userRepo        *users.AgentsRepository
+	agentRepo       *agents.Repository
+	adminRepo       *users.AdminRepository
+	templateManager *TemplateManager
 }
 
 // NewAgentBot creates new Telegram bot for agents
-func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository) (*AgentBot, error) {
+func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository, adminRepo *users.AdminRepository, templateManager *TemplateManager) (*AgentBot, error) {
 	bot, err := tgbotapi.NewBotAPI(cfg.Telegram.BotToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
@@ -38,14 +41,17 @@ func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, user
 
 	logger.Info("Telegram agent bot authorized",
 		zap.String("username", bot.Self.UserName),
+		zap.Bool("admin_enabled", cfg.Telegram.AdminID != 0),
 	)
 
 	return &AgentBot{
-		api:            bot,
-		cfg:            cfg,
-		agenticManager: agenticManager,
-		userRepo:       userRepo,
-		agentRepo:      agentRepo,
+		api:             bot,
+		cfg:             cfg,
+		agenticManager:  agenticManager,
+		userRepo:        userRepo,
+		agentRepo:       agentRepo,
+		adminRepo:       adminRepo,
+		templateManager: templateManager,
 	}, nil
 }
 
@@ -82,19 +88,45 @@ func (ab *AgentBot) handleCommand(message *tgbotapi.Message) {
 	ctx := context.Background()
 	telegramID := message.From.ID
 
+	cmd := message.Command()
+	args := strings.Fields(message.CommandArguments())
+
+	// Check if admin command
+	if ab.isAdminCommand(cmd) {
+		if !ab.isAdmin(telegramID) {
+			ab.sendTemplateWithName(telegramID, "errors.tmpl", "admin_required", nil)
+			return
+		}
+		ab.handleAdminCommand(ctx, telegramID, cmd, args)
+		return
+	}
+
 	// Get or create user
 	user, err := ab.userRepo.GetUserByTelegramID(ctx, telegramID)
 	if err != nil {
 		// Create new user
 		user, err = ab.userRepo.CreateUser(ctx, telegramID, message.From.UserName, message.From.FirstName)
 		if err != nil {
-			ab.sendMessage(telegramID, "❌ Failed to create user")
+			ab.sendTemplateWithName(telegramID, "errors.tmpl", "user_create_failed", nil)
 			return
 		}
 	}
 
-	cmd := message.Command()
-	args := strings.Fields(message.CommandArguments())
+	// Check if user is active or banned
+	if !user.IsActive {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "account_deactivated", nil)
+		return
+	}
+	if user.IsBanned {
+		reason := "No reason provided"
+		if user.BanReason != "" {
+			reason = user.BanReason
+		}
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "account_banned", map[string]interface{}{
+			"Reason": reason,
+		})
+		return
+	}
 
 	switch cmd {
 	case "start":
@@ -118,28 +150,45 @@ func (ab *AgentBot) handleCommand(message *tgbotapi.Message) {
 	case "personalities":
 		ab.handlePersonalities(telegramID)
 	default:
-		ab.sendMessage(telegramID, "Unknown command. Use /start for help.")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "unknown_command", nil)
 	}
+}
+
+// isAdmin checks if user is system admin
+func (ab *AgentBot) isAdmin(telegramID int64) bool {
+	return ab.cfg.Telegram.AdminID != 0 && ab.cfg.Telegram.AdminID == telegramID
+}
+
+// isAdminCommand checks if command requires admin access
+func (ab *AgentBot) isAdminCommand(cmd string) bool {
+	adminCommands := map[string]bool{
+		"admin":           true,
+		"system_stats":    true,
+		"all_users":       true,
+		"all_agents":      true,
+		"news_stats":      true,
+		"trade_stats":     true,
+		"ban_user":        true,
+		"unban_user":      true,
+		"deactivate_user": true,
+		"activate_user":   true,
+		"stop_any_agent":  true,
+		"user_info":       true,
+	}
+	return adminCommands[cmd]
 }
 
 // handleStart shows welcome message
 func (ab *AgentBot) handleStart(telegramID int64, user *models.User) {
-	msg := fmt.Sprintf(`🤖 *Welcome to AI Agent Trading System!*
+	data := map[string]interface{}{
+		"Username": user.Username,
+	}
 
-You are registered as: %s
-
-*Setup Steps:*
-1️⃣ Connect exchange: /connect binance YOUR_API_KEY YOUR_SECRET
-2️⃣ Add trading pair: /add_ticker BTC/USDT 1000
-3️⃣ Create agent: /create_agent conservative "Technical Tom"
-4️⃣ Assign agent: /assign_agent AGENT_ID BTC/USDT 500
-5️⃣ Start trading: /start_agent AGENT_ID
-
-*Commands:*
-/personalities - View agent types
-/agents - List your agents
-/stats AGENT_ID - Agent performance
-/stop_agent AGENT_ID - Stop agent`, user.Username)
+	msg, err := ab.templateManager.ExecuteTemplate("welcome.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render welcome template", zap.Error(err))
+		return
+	}
 
 	ab.sendMessageMarkdown(telegramID, msg)
 }
@@ -147,7 +196,7 @@ You are registered as: %s
 // handleConnect connects user's exchange
 func (ab *AgentBot) handleConnect(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 3 {
-		ab.sendMessage(telegramID, "Usage: /connect <exchange> <api_key> <api_secret> [testnet]\nExample: /connect binance your_key your_secret true")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "connect", nil)
 		return
 	}
 
@@ -161,7 +210,9 @@ func (ab *AgentBot) handleConnect(ctx context.Context, telegramID int64, userID 
 
 	_, err := ab.userRepo.AddExchange(ctx, userID, exchange, apiKey, apiSecret, testnet)
 	if err != nil {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to connect exchange: %v", err))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
 		return
 	}
 
@@ -170,13 +221,24 @@ func (ab *AgentBot) handleConnect(ctx context.Context, telegramID int64, userID 
 		mode = "LIVE"
 	}
 
-	ab.sendMessage(telegramID, fmt.Sprintf("✅ %s connected (%s)\n\nNext: /add_ticker BTC/USDT 1000", strings.ToUpper(exchange), mode))
+	data := map[string]interface{}{
+		"Exchange": strings.ToUpper(exchange),
+		"Mode":     mode,
+	}
+
+	msg, err := ab.templateManager.ExecuteTemplate("exchange_connected.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
+
+	ab.sendMessage(telegramID, msg)
 }
 
 // handleAddTicker adds trading pair
 func (ab *AgentBot) handleAddTicker(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 2 {
-		ab.sendMessage(telegramID, "Usage: /add_ticker <symbol> <budget>\nExample: /add_ticker BTC/USDT 1000")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "add_ticker", nil)
 		return
 	}
 
@@ -184,7 +246,7 @@ func (ab *AgentBot) handleAddTicker(ctx context.Context, telegramID int64, userI
 	budget, _ := strconv.ParseFloat(args[1], 64)
 
 	if budget <= 0 {
-		ab.sendMessage(telegramID, "❌ Budget must be positive")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "budget_must_be_positive", nil)
 		return
 	}
 
@@ -192,23 +254,36 @@ func (ab *AgentBot) handleAddTicker(ctx context.Context, telegramID int64, userI
 	// TODO: Support multiple exchanges
 	exch, err := ab.userRepo.GetUserExchange(ctx, userID, "binance")
 	if err != nil {
-		ab.sendMessage(telegramID, "❌ Connect exchange first: /connect binance KEY SECRET")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "exchange_not_found", nil)
 		return
 	}
 
 	_, err = ab.userRepo.AddTradingPair(ctx, userID, exch.ID, symbol, budget)
 	if err != nil {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to add ticker: %v", err))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
 		return
 	}
 
-	ab.sendMessage(telegramID, fmt.Sprintf("✅ %s added with budget $%.2f\n\nNext: /create_agent conservative \"My Agent\"", symbol, budget))
+	data := map[string]interface{}{
+		"Symbol": symbol,
+		"Budget": budget,
+	}
+
+	msg, err := ab.templateManager.ExecuteTemplate("ticker_added.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
+
+	ab.sendMessage(telegramID, msg)
 }
 
 // handleCreateAgent creates new agent
 func (ab *AgentBot) handleCreateAgent(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 2 {
-		ab.sendMessage(telegramID, "Usage: /create_agent <personality> <name>\n\nUse /personalities to see options")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "create_agent", nil)
 		return
 	}
 
@@ -217,39 +292,32 @@ func (ab *AgentBot) handleCreateAgent(ctx context.Context, telegramID int64, use
 
 	config, err := ab.agenticManager.CreateAgentFromPersonality(ctx, userID, personality, name)
 	if err != nil {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed: %v", err))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
 		return
 	}
 
-	emoji := agents.GetAgentColorEmoji(personality)
-	msg := fmt.Sprintf(`✅ Agent created!
+	data := map[string]interface{}{
+		"Emoji":           agents.GetAgentColorEmoji(personality),
+		"Name":            config.Name,
+		"ShortID":         config.ID[:8] + "...",
+		"Personality":     personality,
+		"MaxPosition":     config.Strategy.MaxPositionPercent,
+		"MaxLeverage":     config.Strategy.MaxLeverage,
+		"StopLoss":        config.Strategy.StopLossPercent,
+		"TakeProfit":      config.Strategy.TakeProfitPercent,
+		"TechnicalWeight": config.Specialization.TechnicalWeight * 100,
+		"NewsWeight":      config.Specialization.NewsWeight * 100,
+		"OnChainWeight":   config.Specialization.OnChainWeight * 100,
+		"SentimentWeight": config.Specialization.SentimentWeight * 100,
+	}
 
-%s *%s* (ID: %s)
-Personality: %s
-
-📊 Strategy:
-• Position: %.0f%%
-• Leverage: %dx
-• Stop Loss: %.1f%%
-• Take Profit: %.1f%%
-
-🎯 Signal Weights:
-• Technical: %.0f%%
-• News: %.0f%%
-• On-Chain: %.0f%%
-• Sentiment: %.0f%%
-
-Next: /assign_agent %s BTC/USDT 500`,
-		emoji, config.Name, config.ID[:8]+"...", personality,
-		config.Strategy.MaxPositionPercent,
-		config.Strategy.MaxLeverage,
-		config.Strategy.StopLossPercent,
-		config.Strategy.TakeProfitPercent,
-		config.Specialization.TechnicalWeight*100,
-		config.Specialization.NewsWeight*100,
-		config.Specialization.OnChainWeight*100,
-		config.Specialization.SentimentWeight*100,
-		config.ID[:8]+"...")
+	msg, err := ab.templateManager.ExecuteTemplate("agent_created.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
 
 	ab.sendMessageMarkdown(telegramID, msg)
 }
@@ -257,7 +325,7 @@ Next: /assign_agent %s BTC/USDT 500`,
 // handleAssignAgent assigns agent to symbol
 func (ab *AgentBot) handleAssignAgent(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 3 {
-		ab.sendMessage(telegramID, "Usage: /assign_agent <agent_id> <symbol> <budget>\nExample: /assign_agent abc123 BTC/USDT 500")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "assign_agent", nil)
 		return
 	}
 
@@ -268,7 +336,9 @@ func (ab *AgentBot) handleAssignAgent(ctx context.Context, telegramID int64, use
 	// Find trading pair ID
 	pairs, err := ab.userRepo.GetUserTradingPairs(ctx, userID)
 	if err != nil {
-		ab.sendMessage(telegramID, "❌ Failed to get trading pairs")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "get trading pairs",
+		})
 		return
 	}
 
@@ -281,32 +351,59 @@ func (ab *AgentBot) handleAssignAgent(ctx context.Context, telegramID int64, use
 	}
 
 	if pairID == "" {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Symbol %s not found. Add it first: /add_ticker %s 1000", symbol, symbol))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "symbol_not_found", map[string]interface{}{
+			"Symbol": symbol,
+		})
 		return
 	}
 
 	_, err = ab.userRepo.AssignAgentToSymbol(ctx, userID, agentID, pairID, budget)
 	if err != nil {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed: %v", err))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
 		return
 	}
 
-	ab.sendMessage(telegramID, fmt.Sprintf("✅ Agent assigned to %s with $%.2f budget\n\nStart trading: /start_agent %s", symbol, budget, agentID[:8]+"..."))
+	data := map[string]interface{}{
+		"Symbol":  symbol,
+		"Budget":  budget,
+		"ShortID": agentID[:8] + "...",
+	}
+
+	msg, err := ab.templateManager.ExecuteTemplate("agent_assigned.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
+
+	ab.sendMessage(telegramID, msg)
 }
 
 // handleStartAgent starts agent trading
 func (ab *AgentBot) handleStartAgent(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 1 {
-		ab.sendMessage(telegramID, "Usage: /start_agent <agent_id>")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "start_agent", nil)
 		return
 	}
 
 	agentID := args[0]
+	paperMode := false
+
+	// Check for --paper flag
+	for _, arg := range args[1:] {
+		if arg == "--paper" {
+			paperMode = true
+			break
+		}
+	}
 
 	// Get agent assignments to find symbol and budget
 	assignments, err := ab.userRepo.GetAgentAssignments(ctx, userID)
 	if err != nil {
-		ab.sendMessage(telegramID, "❌ Failed to get assignments")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "get assignments",
+		})
 		return
 	}
 
@@ -319,7 +416,7 @@ func (ab *AgentBot) handleStartAgent(ctx context.Context, telegramID int64, user
 	}
 
 	if assignment == nil {
-		ab.sendMessage(telegramID, "❌ Agent not assigned to any symbol. Use /assign_agent first")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "agent_not_assigned", nil)
 		return
 	}
 
@@ -336,78 +433,112 @@ func (ab *AgentBot) handleStartAgent(ctx context.Context, telegramID int64, user
 	// Get exchange credentials
 	exch, err := ab.userRepo.GetUserExchange(ctx, userID, "binance") // TODO: get from pair
 	if err != nil {
-		ab.sendMessage(telegramID, "❌ Exchange not found")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "exchange_not_found", nil)
 		return
 	}
 
 	// Create exchange adapter
 	var exchangeAdapter exchange.Exchange
 
-	// Create real exchange adapter
-	switch exch.Exchange {
-	case "binance":
-		exchangeAdapter, err = exchange.NewBinanceAdapter(
-			exch.APIKey,
-			exch.APISecret,
-			exch.Testnet,
-			&ab.cfg.Exchanges.Binance,
-		)
+	if paperMode {
+		// Create mock exchange for paper trading
+		budget, _ := assignment.Budget.Float64()
+		exchangeAdapter = exchange.NewMockExchange(exch.Exchange, budget)
+
+		data := map[string]interface{}{
+			"Exchange": exch.Exchange,
+			"Symbol":   symbol,
+			"Budget":   budget,
+		}
+
+		msg, err := ab.templateManager.ExecuteTemplate("paper_mode_info.tmpl", data)
 		if err != nil {
-			ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to connect Binance: %v", err))
+			logger.Error("failed to render template", zap.Error(err))
+		} else {
+			ab.sendMessageMarkdown(telegramID, msg)
+		}
+
+		logger.Info("📝 Paper trading mode enabled",
+			zap.String("symbol", symbol),
+			zap.Float64("balance", budget),
+		)
+	} else {
+		// Create real exchange adapter
+		switch exch.Exchange {
+		case "binance":
+			exchangeAdapter, err = exchange.NewBinanceAdapter(
+				exch.APIKey,
+				exch.APISecret,
+				exch.Testnet,
+				&ab.cfg.Exchanges.Binance,
+			)
+			if err != nil {
+				ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+					"Error": "connect Binance: " + err.Error(),
+				})
+				return
+			}
+			logger.Info("✅ Binance connected",
+				zap.String("symbol", symbol),
+				zap.Bool("testnet", exch.Testnet),
+			)
+		case "bybit":
+			exchangeAdapter, err = exchange.NewBybitAdapter(
+				exch.APIKey,
+				exch.APISecret,
+				exch.Testnet,
+				&ab.cfg.Exchanges.Bybit,
+			)
+			if err != nil {
+				ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+					"Error": "connect Bybit: " + err.Error(),
+				})
+				return
+			}
+			logger.Info("✅ Bybit connected",
+				zap.String("symbol", symbol),
+				zap.Bool("testnet", exch.Testnet),
+			)
+		default:
+			ab.sendTemplateWithName(telegramID, "errors.tmpl", "unsupported_exchange", map[string]interface{}{
+				"Exchange": exch.Exchange,
+			})
 			return
 		}
-		logger.Info("✅ Binance connected",
-			zap.String("symbol", symbol),
-			zap.Bool("testnet", exch.Testnet),
-		)
-	case "bybit":
-		exchangeAdapter, err = exchange.NewBybitAdapter(
-			exch.APIKey,
-			exch.APISecret,
-			exch.Testnet,
-			&ab.cfg.Exchanges.Bybit,
-		)
-		if err != nil {
-			ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to connect Bybit: %v", err))
-			return
-		}
-		logger.Info("✅ Bybit connected",
-			zap.String("symbol", symbol),
-			zap.Bool("testnet", exch.Testnet),
-		)
-	default:
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Unsupported exchange: %s", exch.Exchange))
-		return
 	}
 
 	// Start agent
 	budget, _ := assignment.Budget.Float64()
 	err = ab.agenticManager.StartAgenticAgent(ctx, agentID, symbol, budget, exchangeAdapter)
 	if err != nil {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed to start agent: %v", err))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "start agent: " + err.Error(),
+		})
 		return
 	}
 
 	// Get agent config for details
 	agentConfig, _ := ab.agentRepo.GetAgent(ctx, agentID)
-	emoji := agents.GetAgentColorEmoji(agentConfig.Personality)
 
-	msg := fmt.Sprintf(`✅ Agent started!
+	modeStr := "🟢 LIVE"
+	if paperMode {
+		modeStr = "📝 PAPER"
+	}
 
-%s *%s*
-Symbol: %s
-Budget: $%.2f
-Interval: %v
+	data := map[string]interface{}{
+		"Emoji":     agents.GetAgentColorEmoji(agentConfig.Personality),
+		"AgentName": agentConfig.Name,
+		"Mode":      modeStr,
+		"Symbol":    symbol,
+		"Budget":    budget,
+		"Interval":  agentConfig.DecisionInterval,
+	}
 
-🧠 The agent will now:
-• Think step-by-step (Chain-of-Thought)
-• Remember past experiences
-• Reflect on each trade
-• Adapt its strategy
-• Plan ahead
-
-First decision in ~%v`,
-		emoji, agentConfig.Name, symbol, budget, agentConfig.DecisionInterval, agentConfig.DecisionInterval)
+	msg, err := ab.templateManager.ExecuteTemplate("agent_started.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
 
 	ab.sendMessageMarkdown(telegramID, msg)
 }
@@ -415,7 +546,7 @@ First decision in ~%v`,
 // handleStopAgent stops agent
 func (ab *AgentBot) handleStopAgent(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 1 {
-		ab.sendMessage(telegramID, "Usage: /stop_agent <agent_id>")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "stop_agent", nil)
 		return
 	}
 
@@ -423,23 +554,27 @@ func (ab *AgentBot) handleStopAgent(ctx context.Context, telegramID int64, userI
 
 	err := ab.agenticManager.StopAgenticAgent(ctx, agentID)
 	if err != nil {
-		ab.sendMessage(telegramID, fmt.Sprintf("❌ Failed: %v", err))
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
 		return
 	}
 
-	ab.sendMessage(telegramID, "✅ Agent stopped")
+	ab.sendTemplateWithName(telegramID, "errors.tmpl", "agent_stopped", nil)
 }
 
 // handleListAgents lists all user's agents
 func (ab *AgentBot) handleListAgents(ctx context.Context, telegramID int64, userID string) {
 	userAgents, err := ab.agentRepo.GetUserAgents(ctx, userID)
 	if err != nil {
-		ab.sendMessage(telegramID, "❌ Failed to load agents")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "load agents",
+		})
 		return
 	}
 
 	if len(userAgents) == 0 {
-		ab.sendMessage(telegramID, "You have no agents. Create one: /create_agent conservative \"My Agent\"")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "no_agents", nil)
 		return
 	}
 
@@ -449,21 +584,31 @@ func (ab *AgentBot) handleListAgents(ctx context.Context, telegramID int64, user
 		runningMap[runner.Config.ID] = true
 	}
 
-	msg := "🤖 *Your AI Agents:*\n\n"
+	agentsList := make([]map[string]interface{}, 0, len(userAgents))
 	for _, agent := range userAgents {
 		status := "⏸️ Stopped"
 		if runningMap[agent.ID] {
 			status = "▶️ Running"
 		}
 
-		emoji := agents.GetAgentColorEmoji(agent.Personality)
-		msg += fmt.Sprintf("%s *%s*\n", emoji, agent.Name)
-		msg += fmt.Sprintf("   ID: `%s...`\n", agent.ID[:8])
-		msg += fmt.Sprintf("   Status: %s\n", status)
-		msg += fmt.Sprintf("   Personality: %s\n\n", agent.Personality)
+		agentsList = append(agentsList, map[string]interface{}{
+			"Emoji":       agents.GetAgentColorEmoji(agent.Personality),
+			"Name":        agent.Name,
+			"ShortID":     agent.ID[:8],
+			"Status":      status,
+			"Personality": agent.Personality,
+		})
 	}
 
-	msg += "\n💡 /start_agent ID | /stop_agent ID | /stats ID"
+	data := map[string]interface{}{
+		"Agents": agentsList,
+	}
+
+	msg, err := ab.templateManager.ExecuteTemplate("agents_list.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
 
 	ab.sendMessageMarkdown(telegramID, msg)
 }
@@ -471,7 +616,7 @@ func (ab *AgentBot) handleListAgents(ctx context.Context, telegramID int64, user
 // handleStats shows agent statistics
 func (ab *AgentBot) handleStats(ctx context.Context, telegramID int64, userID string, args []string) {
 	if len(args) < 1 {
-		ab.sendMessage(telegramID, "Usage: /stats <agent_id>")
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "stats", nil)
 		return
 	}
 
@@ -479,21 +624,35 @@ func (ab *AgentBot) handleStats(ctx context.Context, telegramID int64, userID st
 
 	agentConfig, err := ab.agentRepo.GetAgent(ctx, agentID)
 	if err != nil || agentConfig.UserID != userID {
-		ab.sendMessage(telegramID, "❌ Agent not found")
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "agent_not_found", nil)
 		return
 	}
 
 	runner, isRunning := ab.agenticManager.GetAgenticRunner(agentID)
 
-	emoji := agents.GetAgentColorEmoji(agentConfig.Personality)
-	msg := fmt.Sprintf("📊 *Agent Statistics*\n\n%s *%s*\n", emoji, agentConfig.Name)
+	status := "⏸️ Stopped"
+	lastDecision := ""
+	lastReflection := ""
 
 	if isRunning {
-		msg += "Status: ▶️ Running\n"
-		msg += fmt.Sprintf("Last Decision: %s ago\n", time.Since(runner.LastDecisionAt).Round(time.Second))
-		msg += fmt.Sprintf("Last Reflection: %s ago\n", time.Since(runner.LastReflectionAt).Round(time.Second))
-	} else {
-		msg += "Status: ⏸️ Stopped\n"
+		status = "▶️ Running"
+		lastDecision = time.Since(runner.LastDecisionAt).Round(time.Second).String() + " ago"
+		lastReflection = time.Since(runner.LastReflectionAt).Round(time.Second).String() + " ago"
+	}
+
+	data := map[string]interface{}{
+		"Emoji":          agents.GetAgentColorEmoji(agentConfig.Personality),
+		"Name":           agentConfig.Name,
+		"Status":         status,
+		"IsRunning":      isRunning,
+		"LastDecision":   lastDecision,
+		"LastReflection": lastReflection,
+	}
+
+	msg, err := ab.templateManager.ExecuteTemplate("agent_stats.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
 	}
 
 	ab.sendMessageMarkdown(telegramID, msg)
@@ -501,8 +660,6 @@ func (ab *AgentBot) handleStats(ctx context.Context, telegramID int64, userID st
 
 // handlePersonalities shows available personalities
 func (ab *AgentBot) handlePersonalities(telegramID int64) {
-	msg := "🤖 *Agent Personalities:*\n\n"
-
 	personalities := []models.AgentPersonality{
 		models.PersonalityConservative,
 		models.PersonalityAggressive,
@@ -514,15 +671,419 @@ func (ab *AgentBot) handlePersonalities(telegramID int64) {
 		models.PersonalityContrarian,
 	}
 
+	personalityList := make([]map[string]interface{}, 0, len(personalities))
 	for _, p := range personalities {
-		emoji := agents.GetAgentColorEmoji(p)
-		desc := agents.GetAgentDescription(p)
-		msg += fmt.Sprintf("%s *%s*\n%s\n\n", emoji, p, desc)
+		personalityList = append(personalityList, map[string]interface{}{
+			"Emoji":       agents.GetAgentColorEmoji(p),
+			"Name":        p,
+			"Description": agents.GetAgentDescription(p),
+		})
 	}
 
-	msg += "Create: /create_agent <personality> <name>"
+	data := map[string]interface{}{
+		"Personalities": personalityList,
+	}
+
+	msg, err := ab.templateManager.ExecuteTemplate("personalities_list.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render template", zap.Error(err))
+		return
+	}
 
 	ab.sendMessageMarkdown(telegramID, msg)
+}
+
+// Admin command handlers
+
+func (ab *AgentBot) handleAdminCommand(ctx context.Context, telegramID int64, cmd string, args []string) {
+	switch cmd {
+	case "admin":
+		ab.handleAdminHelp(telegramID)
+	case "system_stats":
+		ab.handleSystemStats(ctx, telegramID)
+	case "all_users":
+		ab.handleAllUsers(ctx, telegramID)
+	case "all_agents":
+		ab.handleAllAgents(ctx, telegramID)
+	case "news_stats":
+		ab.handleNewsStats(ctx, telegramID)
+	case "trade_stats":
+		ab.handleTradeStats(ctx, telegramID)
+	case "ban_user":
+		ab.handleBanUser(ctx, telegramID, args)
+	case "unban_user":
+		ab.handleUnbanUser(ctx, telegramID, args)
+	case "stop_any_agent":
+		ab.handleStopAnyAgent(ctx, telegramID, args)
+	case "user_info":
+		ab.handleUserInfo(ctx, telegramID, args)
+	default:
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "unknown_admin_command", nil)
+	}
+}
+
+func (ab *AgentBot) handleAdminHelp(telegramID int64) {
+	ab.sendTemplate(telegramID, "admin_help.tmpl", nil)
+}
+
+func (ab *AgentBot) handleSystemStats(ctx context.Context, telegramID int64) {
+	stats, err := ab.adminRepo.GetSystemStats(ctx)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "get stats: " + err.Error(),
+		})
+		return
+	}
+
+	winRate := 0.0
+	if stats.TotalTrades > 0 {
+		winRate = float64(stats.ProfitableTrades) / float64(stats.TotalTrades) * 100
+	}
+
+	activeUsersPercent := 0.0
+	if stats.TotalUsers > 0 {
+		activeUsersPercent = float64(stats.ActiveUsers) / float64(stats.TotalUsers) * 100
+	}
+
+	activeAgentsPercent := 0.0
+	if stats.TotalAgents > 0 {
+		activeAgentsPercent = float64(stats.ActiveAgents) / float64(stats.TotalAgents) * 100
+	}
+
+	data := map[string]interface{}{
+		"TotalUsers":          stats.TotalUsers,
+		"ActiveUsers":         stats.ActiveUsers,
+		"ActiveUsersPercent":  activeUsersPercent,
+		"TotalAgents":         stats.TotalAgents,
+		"ActiveAgents":        stats.ActiveAgents,
+		"ActiveAgentsPercent": activeAgentsPercent,
+		"TotalTrades":         stats.TotalTrades,
+		"WinRate":             winRate,
+		"TotalVolume":         stats.TotalVolume,
+		"TotalProfit":         stats.TotalProfit,
+	}
+
+	if stats.TopPerformingAgent != nil {
+		data["TopAgent"] = map[string]interface{}{
+			"Name":     stats.TopPerformingAgent.AgentName,
+			"Username": stats.TopPerformingAgent.Username,
+			"Profit":   stats.TopPerformingAgent.TotalProfit,
+			"WinRate":  stats.TopPerformingAgent.WinRate * 100,
+		}
+	}
+
+	if stats.WorstPerformingAgent != nil {
+		data["WorstAgent"] = map[string]interface{}{
+			"Name":     stats.WorstPerformingAgent.AgentName,
+			"Username": stats.WorstPerformingAgent.Username,
+			"Profit":   stats.WorstPerformingAgent.TotalProfit,
+		}
+	}
+
+	ab.sendTemplate(telegramID, "system_stats.tmpl", data)
+}
+
+func (ab *AgentBot) handleAllUsers(ctx context.Context, telegramID int64) {
+	allUsers, err := ab.adminRepo.GetAllUsers(ctx)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	if len(allUsers) == 0 {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "no_users_found", nil)
+		return
+	}
+
+	usersList := make([]map[string]interface{}, 0, 20)
+	for i, u := range allUsers {
+		if i >= 20 {
+			break
+		}
+
+		status := "✅"
+		if u.IsBanned {
+			status = "🚫"
+		}
+
+		usersList = append(usersList, map[string]interface{}{
+			"Status":       status,
+			"Username":     u.Username,
+			"TelegramID":   u.TelegramID,
+			"ActiveAgents": u.ActiveAgents,
+			"TotalAgents":  u.TotalAgents,
+			"TotalTrades":  u.TotalTrades,
+			"TotalProfit":  u.TotalProfit,
+			"RegisteredAt": u.RegisteredAt.Format("2006-01-02"),
+		})
+	}
+
+	data := map[string]interface{}{
+		"Users":     usersList,
+		"HasMore":   len(allUsers) > 20,
+		"MoreCount": len(allUsers) - 20,
+	}
+
+	ab.sendTemplate(telegramID, "all_users.tmpl", data)
+}
+
+func (ab *AgentBot) handleAllAgents(ctx context.Context, telegramID int64) {
+	allAgents, err := ab.adminRepo.GetAllAgents(ctx)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	if len(allAgents) == 0 {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "no_agents_found", nil)
+		return
+	}
+
+	agentsList := make([]map[string]interface{}, 0, 15)
+	for i, a := range allAgents {
+		if i >= 15 {
+			break
+		}
+
+		agentsList = append(agentsList, map[string]interface{}{
+			"Emoji":       agents.GetAgentColorEmoji(a.Personality),
+			"Name":        a.AgentName,
+			"Username":    a.Username,
+			"ShortID":     a.AgentID[:8],
+			"TotalTrades": a.TotalTrades,
+			"WinRate":     a.WinRate * 100,
+			"TotalProfit": a.TotalProfit,
+			"LastTrade":   time.Since(a.LastTradeAt).Round(time.Hour).String(),
+		})
+	}
+
+	data := map[string]interface{}{
+		"Agents":    agentsList,
+		"HasMore":   len(allAgents) > 15,
+		"MoreCount": len(allAgents) - 15,
+	}
+
+	ab.sendTemplate(telegramID, "all_agents.tmpl", data)
+}
+
+func (ab *AgentBot) handleNewsStats(ctx context.Context, telegramID int64) {
+	stats, err := ab.adminRepo.GetNewsStats(ctx)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	total := stats.PositiveSentiment + stats.NegativeSentiment + stats.NeutralSentiment
+	posPercent := 0.0
+	negPercent := 0.0
+	neuPercent := 0.0
+
+	if total > 0 {
+		posPercent = float64(stats.PositiveSentiment) / float64(total) * 100
+		negPercent = float64(stats.NegativeSentiment) / float64(total) * 100
+		neuPercent = float64(stats.NeutralSentiment) / float64(total) * 100
+	}
+
+	data := map[string]interface{}{
+		"TotalNews":         stats.TotalNews,
+		"Last24h":           stats.Last24h,
+		"PositiveSentiment": stats.PositiveSentiment,
+		"PositivePercent":   posPercent,
+		"NegativeSentiment": stats.NegativeSentiment,
+		"NegativePercent":   negPercent,
+		"NeutralSentiment":  stats.NeutralSentiment,
+		"NeutralPercent":    neuPercent,
+	}
+
+	ab.sendTemplate(telegramID, "news_stats.tmpl", data)
+}
+
+func (ab *AgentBot) handleTradeStats(ctx context.Context, telegramID int64) {
+	stats, err := ab.adminRepo.GetTradeStats(ctx)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	data := map[string]interface{}{
+		"TotalTrades": stats.TotalTrades,
+		"AvgProfit":   stats.AvgProfit,
+		"TotalVolume": stats.TotalVolume,
+		"Last24h":     stats.Last24h,
+		"Last7d":      stats.Last7d,
+		"Last30d":     stats.Last30d,
+	}
+
+	if len(stats.ByExchange) > 0 {
+		data["ByExchange"] = stats.ByExchange
+	}
+
+	if len(stats.BySymbol) > 0 {
+		topSymbols := make([]map[string]interface{}, 0, 5)
+		count := 0
+		for symbol, trades := range stats.BySymbol {
+			if count >= 5 {
+				break
+			}
+			topSymbols = append(topSymbols, map[string]interface{}{
+				"Symbol": symbol,
+				"Count":  trades,
+			})
+			count++
+		}
+		data["TopSymbols"] = topSymbols
+	}
+
+	ab.sendTemplate(telegramID, "trade_stats.tmpl", data)
+}
+
+func (ab *AgentBot) handleBanUser(ctx context.Context, telegramID int64, args []string) {
+	if len(args) < 2 {
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "ban_user", nil)
+		return
+	}
+
+	userID := args[0]
+	reason := strings.Join(args[1:], " ")
+
+	err := ab.adminRepo.BanUser(ctx, userID, reason)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	// Get user info to notify
+	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
+
+	ab.sendTemplate(telegramID, "user_banned.tmpl", map[string]interface{}{
+		"Username": userStats.Username,
+		"Reason":   reason,
+	})
+
+	// Try to notify banned user
+	if userStats != nil {
+		ab.sendTemplate(userStats.TelegramID, "user_banned_notification.tmpl", map[string]interface{}{
+			"Reason": reason,
+		})
+	}
+}
+
+func (ab *AgentBot) handleUnbanUser(ctx context.Context, telegramID int64, args []string) {
+	if len(args) < 1 {
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "unban_user", nil)
+		return
+	}
+
+	userID := args[0]
+
+	err := ab.adminRepo.UnbanUser(ctx, userID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
+
+	ab.sendTemplate(telegramID, "user_unbanned.tmpl", map[string]interface{}{
+		"Username": userStats.Username,
+	})
+
+	// Notify unbanned user
+	if userStats != nil {
+		ab.sendTemplate(userStats.TelegramID, "user_restored.tmpl", nil)
+	}
+}
+
+func (ab *AgentBot) handleStopAnyAgent(ctx context.Context, telegramID int64, args []string) {
+	if len(args) < 1 {
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "stop_any_agent", nil)
+		return
+	}
+
+	agentID := args[0]
+
+	// Stop in manager
+	err := ab.agenticManager.StopAgenticAgent(ctx, agentID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "stop agent: " + err.Error(),
+		})
+		return
+	}
+
+	// Update DB
+	err = ab.adminRepo.StopAgentByAdmin(ctx, agentID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "DB update: " + err.Error(),
+		})
+		return
+	}
+
+	ab.sendTemplate(telegramID, "agent_stopped_admin.tmpl", map[string]interface{}{
+		"ShortID": agentID[:8],
+	})
+}
+
+func (ab *AgentBot) handleUserInfo(ctx context.Context, telegramID int64, args []string) {
+	if len(args) < 1 {
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "user_info", nil)
+		return
+	}
+
+	targetTelegramID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "invalid_telegram_id", nil)
+		return
+	}
+
+	// Get user by telegram ID
+	user, err := ab.userRepo.GetUserByTelegramID(ctx, targetTelegramID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "user_not_found", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	userStats, err := ab.adminRepo.GetUserByID(ctx, user.ID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": "get stats: " + err.Error(),
+		})
+		return
+	}
+
+	status := "✅ Active"
+	if userStats.IsBanned {
+		status = "🚫 Banned"
+	}
+
+	data := map[string]interface{}{
+		"Username":     userStats.Username,
+		"TelegramID":   userStats.TelegramID,
+		"Status":       status,
+		"UserID":       userStats.UserID,
+		"TotalAgents":  userStats.TotalAgents,
+		"ActiveAgents": userStats.ActiveAgents,
+		"TotalTrades":  userStats.TotalTrades,
+		"TotalProfit":  userStats.TotalProfit,
+		"RegisteredAt": userStats.RegisteredAt.Format("2006-01-02 15:04"),
+	}
+
+	ab.sendTemplate(telegramID, "user_info.tmpl", data)
 }
 
 // Helper methods
@@ -536,4 +1097,37 @@ func (ab *AgentBot) sendMessageMarkdown(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
 	ab.api.Send(msg)
+}
+
+// sendTemplate sends message using template
+func (ab *AgentBot) sendTemplate(chatID int64, templateName string, data interface{}) {
+	msg, err := ab.templateManager.ExecuteTemplate(templateName, data)
+	if err != nil {
+		logger.Error("failed to render template",
+			zap.String("template", templateName),
+			zap.Error(err))
+		return
+	}
+	ab.sendMessageMarkdown(chatID, msg)
+}
+
+// sendTemplateWithName sends message using named template within a file (e.g., errors.tmpl, usage.tmpl)
+func (ab *AgentBot) sendTemplateWithName(chatID int64, templateFile, templateName string, data interface{}) {
+	tmpl := ab.templateManager.GetTemplate(templateFile)
+	if tmpl == nil {
+		logger.Error("template file not found", zap.String("file", templateFile))
+		return
+	}
+
+	var buf bytes.Buffer
+	err := tmpl.ExecuteTemplate(&buf, templateName, data)
+	if err != nil {
+		logger.Error("failed to render named template",
+			zap.String("file", templateFile),
+			zap.String("name", templateName),
+			zap.Error(err))
+		return
+	}
+
+	ab.sendMessageMarkdown(chatID, buf.String())
 }

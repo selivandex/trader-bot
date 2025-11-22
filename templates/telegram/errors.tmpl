@@ -1,0 +1,45 @@
+{{/* Error messages template */}}
+{{ define "admin_required" }}❌ Admin access required{{ end }}
+
+{{ define "user_create_failed" }}❌ Failed to create user{{ end }}
+
+{{ define "account_deactivated" }}❌ Your account has been deactivated. Contact support.{{ end }}
+
+{{ define "account_banned" }}🚫 Your account has been banned.
+
+Reason: {{ .Reason }}
+
+Contact administrator for more information.{{ end }}
+
+{{ define "unknown_command" }}Unknown command. Use /start for help.{{ end }}
+
+{{ define "failed" }}❌ Failed: {{ .Error }}{{ end }}
+
+{{ define "agent_not_found" }}❌ Agent not found{{ end }}
+
+{{ define "exchange_not_found" }}❌ Exchange not found{{ end }}
+
+{{ define "budget_must_be_positive" }}❌ Budget must be positive{{ end }}
+
+{{ define "symbol_not_found" }}❌ Symbol {{ .Symbol }} not found. Add it first: /add_ticker {{ .Symbol }} 1000{{ end }}
+
+{{ define "no_agents" }}You have no agents. Create one: /create_agent conservative "My Agent"{{ end }}
+
+{{ define "agent_stopped" }}✅ Agent stopped{{ end }}
+
+{{ define "agent_not_assigned" }}❌ Agent not assigned to any symbol. Use /assign_agent first{{ end }}
+
+{{ define "connect_exchange_first" }}❌ Connect exchange first: /connect binance KEY SECRET{{ end }}
+
+{{ define "unsupported_exchange" }}❌ Unsupported exchange: {{ .Exchange }}{{ end }}
+
+{{ define "unknown_admin_command" }}Unknown admin command. Use /admin for help.{{ end }}
+
+{{ define "invalid_telegram_id" }}❌ Invalid telegram_id{{ end }}
+
+{{ define "user_not_found" }}❌ User not found: {{ .Error }}{{ end }}
+
+{{ define "no_users_found" }}No users found{{ end }}
+
+{{ define "no_agents_found" }}No agents found{{ end }}
+

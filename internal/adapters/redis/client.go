@@ -52,6 +52,11 @@ func (c *Client) GetLockManager() *redlock.RedLock {
 	return c.lockManager
 }
 
+// GetLockFactory returns a lock factory for creating agent locks
+func (c *Client) GetLockFactory() LockFactory {
+	return NewRedisLockFactory(c.lockManager)
+}
+
 // Close closes redis connections
 func (c *Client) Close() error {
 	if c.lockManager != nil {

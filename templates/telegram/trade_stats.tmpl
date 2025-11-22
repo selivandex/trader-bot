@@ -1,0 +1,19 @@
+💹 *Trading Statistics*
+
+📊 *Overall:*
+• Total Trades: {{ .TotalTrades }}
+• Avg Profit: ${{ printf "%.2f" .AvgProfit }}
+• Total Volume: ${{ printf "%.2f" .TotalVolume }}
+
+⏱️ *Recent:*
+• Last 24h: {{ .Last24h }} trades
+• Last 7d: {{ .Last7d }} trades
+• Last 30d: {{ .Last30d }} trades
+{{ if .ByExchange }}
+🏢 *By Exchange:*
+{{ range $exchange, $count := .ByExchange }}• {{ $exchange }}: {{ $count }} trades
+{{ end }}{{ end }}{{ if .TopSymbols }}
+📈 *Top Symbols:*
+{{ range .TopSymbols }}• {{ .Symbol }}: {{ .Count }} trades
+{{ end }}{{ end }}
+

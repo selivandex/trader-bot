@@ -1,0 +1,31 @@
+{{/* Usage messages template */}}
+{{ define "connect" }}Usage: /connect <exchange> <api_key> <api_secret> [testnet]
+Example: /connect binance your_key your_secret true{{ end }}
+
+{{ define "add_ticker" }}Usage: /add_ticker <symbol> <budget>
+Example: /add_ticker BTC/USDT 1000{{ end }}
+
+{{ define "create_agent" }}Usage: /create_agent <personality> <name>
+
+Use /personalities to see options{{ end }}
+
+{{ define "assign_agent" }}Usage: /assign_agent <agent_id> <symbol> <budget>
+Example: /assign_agent abc123 BTC/USDT 500{{ end }}
+
+{{ define "start_agent" }}Usage: /start_agent <agent_id> [--paper]
+
+Add --paper for virtual trading (no real orders){{ end }}
+
+{{ define "stop_agent" }}Usage: /stop_agent <agent_id>{{ end }}
+
+{{ define "stats" }}Usage: /stats <agent_id>{{ end }}
+
+{{ define "ban_user" }}Usage: /ban_user <user_id> <reason>
+Example: /ban_user abc123 Spam/abuse{{ end }}
+
+{{ define "unban_user" }}Usage: /unban_user <user_id>{{ end }}
+
+{{ define "stop_any_agent" }}Usage: /stop_any_agent <agent_id>{{ end }}
+
+{{ define "user_info" }}Usage: /user_info <telegram_id>{{ end }}
+

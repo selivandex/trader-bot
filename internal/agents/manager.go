@@ -19,15 +19,26 @@ import (
 	"github.com/selivandex/trader-bot/pkg/models"
 )
 
+// Notifier interface for sending notifications
+type Notifier interface {
+	SendTradeAlert(ctx context.Context, userID, agentName, action, symbol string, size, price, pnl float64) error
+	SendAgentStarted(ctx context.Context, userID, agentName, symbol string, budget float64) error
+	SendAgentStopped(ctx context.Context, userID, agentName, symbol string, finalPnL float64) error
+	SendCircuitBreakerAlert(ctx context.Context, userID, agentName, reason string) error
+	SendErrorAlert(ctx context.Context, userID, agentName, errorMsg string) error
+}
+
 // AgenticManager manages autonomous AI agents with full thinking capabilities
 // This is the upgraded manager that uses Chain-of-Thought, Memory, Reflection, and Planning
 type AgenticManager struct {
 	mu             sync.RWMutex
 	db             *sqlx.DB
 	redisClient    *redisAdapter.Client
+	lockFactory    redisAdapter.LockFactory // Factory for creating distributed locks
 	repository     *Repository
 	marketRepo     *market.Repository
 	newsAggregator *news.Aggregator
+	notifier       Notifier                      // Telegram notifier (can be nil)
 	aiProviders    map[string]ai.AgenticProvider // Only agentic providers
 	runningAgents  map[string]*AgenticRunner     // agentID -> runner
 	ctx            context.Context
@@ -46,6 +57,7 @@ type AgenticRunner struct {
 	MemoryManager    *SemanticMemoryManager // Episodic memory
 	Exchange         exchange.Exchange
 	Lock             redisAdapter.AgentLock // Distributed lock for K8s (interface)
+	Notifier         Notifier               // Telegram notifier (can be nil)
 	CancelFunc       context.CancelFunc
 	IsRunning        bool
 	LastDecisionAt   time.Time
@@ -57,9 +69,11 @@ type AgenticRunner struct {
 func NewAgenticManager(
 	db *sqlx.DB,
 	redisClient *redisAdapter.Client,
+	lockFactory redisAdapter.LockFactory,
 	marketRepo *market.Repository,
 	newsAggregator *news.Aggregator,
 	aiProviders []ai.Provider,
+	notifier Notifier, // Can be nil if telegram disabled
 ) *AgenticManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -78,9 +92,11 @@ func NewAgenticManager(
 	return &AgenticManager{
 		db:             db,
 		redisClient:    redisClient,
+		lockFactory:    lockFactory,
 		repository:     NewRepository(db),
 		marketRepo:     marketRepo,
 		newsAggregator: newsAggregator,
+		notifier:       notifier,
 		aiProviders:    agenticProviders,
 		runningAgents:  make(map[string]*AgenticRunner),
 		ctx:            ctx,
@@ -105,8 +121,7 @@ func (am *AgenticManager) StartAgenticAgent(
 	}
 
 	// Try to acquire distributed lock (for multi-pod deployments)
-	lockManager := am.redisClient.GetLockManager()
-	lock := redisAdapter.NewDistributedLock(lockManager, agentID)
+	lock := am.lockFactory.CreateAgentLock(agentID)
 	acquired, err := lock.TryAcquire(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to acquire agent lock: %w", err)
@@ -176,6 +191,7 @@ func (am *AgenticManager) StartAgenticAgent(
 		MemoryManager:    memoryManager,
 		Exchange:         exchangeAdapter,
 		Lock:             lock, // Store lock in runner
+		Notifier:         am.notifier,
 		CancelFunc:       agentCancel,
 		IsRunning:        true,
 		LastDecisionAt:   time.Now(),
@@ -198,6 +214,13 @@ func (am *AgenticManager) StartAgenticAgent(
 		zap.String("symbol", symbol),
 		zap.Float64("initial_balance", initialBalance),
 	)
+
+	// Send notification
+	if am.notifier != nil {
+		if err := am.notifier.SendAgentStarted(ctx, config.UserID, config.Name, symbol, initialBalance); err != nil {
+			logger.Warn("failed to send agent started notification", zap.Error(err))
+		}
+	}
 
 	return nil
 }
@@ -456,6 +479,15 @@ func (am *AgenticManager) StopAgenticAgent(ctx context.Context, agentID string) 
 		zap.String("name", runner.Config.Name),
 	)
 
+	// Send notification
+	if am.notifier != nil {
+		finalPnL, _ := runner.State.PnL.Float64()
+		symbol := runner.State.Symbol
+		if err := am.notifier.SendAgentStopped(ctx, runner.Config.UserID, runner.Config.Name, symbol, finalPnL); err != nil {
+			logger.Warn("failed to send agent stopped notification", zap.Error(err))
+		}
+	}
+
 	return nil
 }
 
@@ -481,6 +513,97 @@ func (am *AgenticManager) GetRunningAgents() []*AgenticRunner {
 	}
 
 	return runners
+}
+
+// RestoreRunningAgents restores agents that were running before pod restart
+// This is called on startup to recover agents with distributed locking
+func (am *AgenticManager) RestoreRunningAgents(ctx context.Context, exchangeFactory func(string, string, string, bool) (exchange.Exchange, error)) error {
+	logger.Info("🔄 restoring running agents from database...")
+
+	// Get list of agents that should be running
+	agentsToRestore, err := am.repository.GetAgentsToRestore(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get agents to restore: %w", err)
+	}
+
+	if len(agentsToRestore) == 0 {
+		logger.Info("no agents to restore")
+		return nil
+	}
+
+	logger.Info("found agents to restore",
+		zap.Int("count", len(agentsToRestore)),
+	)
+
+	restoredCount := 0
+	skippedCount := 0
+	failedCount := 0
+
+	for _, agentInfo := range agentsToRestore {
+		// Try to acquire lock first (avoid starting if another pod already has it)
+		lock := am.lockFactory.CreateAgentLock(agentInfo.AgentID)
+		acquired, err := lock.TryAcquire(ctx)
+		if err != nil {
+			logger.Warn("failed to check agent lock",
+				zap.String("agent_id", agentInfo.AgentID),
+				zap.Error(err),
+			)
+			failedCount++
+			continue
+		}
+
+		if !acquired {
+			logger.Info("agent already running in another pod (lock held), skipping",
+				zap.String("agent_id", agentInfo.AgentID),
+				zap.String("symbol", agentInfo.Symbol),
+			)
+			skippedCount++
+			continue
+		}
+
+		// Release lock immediately - StartAgenticAgent will acquire it again
+		lock.Release(ctx)
+
+		// Create exchange adapter
+		exchangeAdapter, err := exchangeFactory(agentInfo.Exchange, agentInfo.APIKey, agentInfo.APISecret, agentInfo.Testnet)
+		if err != nil {
+			logger.Error("failed to create exchange adapter for agent recovery",
+				zap.String("agent_id", agentInfo.AgentID),
+				zap.String("exchange", agentInfo.Exchange),
+				zap.Error(err),
+			)
+			failedCount++
+			continue
+		}
+
+		// Start agent with current balance
+		err = am.StartAgenticAgent(ctx, agentInfo.AgentID, agentInfo.Symbol, agentInfo.Balance, exchangeAdapter)
+		if err != nil {
+			logger.Error("failed to restore agent",
+				zap.String("agent_id", agentInfo.AgentID),
+				zap.String("symbol", agentInfo.Symbol),
+				zap.Error(err),
+			)
+			failedCount++
+			continue
+		}
+
+		logger.Info("✅ agent restored successfully",
+			zap.String("agent_id", agentInfo.AgentID),
+			zap.String("symbol", agentInfo.Symbol),
+			zap.String("exchange", agentInfo.Exchange),
+		)
+		restoredCount++
+	}
+
+	logger.Info("🎯 agent restoration complete",
+		zap.Int("total", len(agentsToRestore)),
+		zap.Int("restored", restoredCount),
+		zap.Int("skipped", skippedCount),
+		zap.Int("failed", failedCount),
+	)
+
+	return nil
 }
 
 // Shutdown gracefully shuts down all agentic agents

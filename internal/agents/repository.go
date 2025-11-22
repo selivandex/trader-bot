@@ -1153,3 +1153,74 @@ type AgentPerformanceMetrics struct {
 	MaxLoss       float64 `db:"max_loss"`
 	SharpeRatio   float64 `db:"sharpe_ratio"`
 }
+
+// ========== Agent Recovery Methods ==========
+
+// AgentToRestore holds information about agent that needs to be restored after pod restart
+type AgentToRestore struct {
+	AgentID        string  `db:"agent_id"`
+	UserID         string  `db:"user_id"`
+	Symbol         string  `db:"symbol"`
+	Balance        float64 `db:"balance"`
+	InitialBalance float64 `db:"initial_balance"`
+	Exchange       string  `db:"exchange"`
+	APIKey         string  `db:"api_key"`
+	APISecret      string  `db:"api_secret"`
+	Testnet        bool    `db:"testnet"`
+}
+
+// GetAgentsToRestore retrieves all agents that should be running (for pod recovery)
+func (r *Repository) GetAgentsToRestore(ctx context.Context) ([]AgentToRestore, error) {
+	query := `
+		SELECT 
+			ac.id as agent_id,
+			ac.user_id,
+			ast.symbol,
+			ast.balance,
+			ast.initial_balance,
+			ue.exchange,
+			ue.api_key,
+			ue.api_secret,
+			ue.testnet
+		FROM agent_configs ac
+		INNER JOIN agent_states ast ON ac.id = ast.agent_id
+		INNER JOIN user_trading_pairs utp ON ast.symbol = utp.symbol AND utp.user_id = ac.user_id
+		INNER JOIN user_exchanges ue ON utp.exchange_id = ue.id
+		WHERE ac.is_active = true
+		  AND ast.is_trading = true
+		ORDER BY ast.updated_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query agents to restore: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []AgentToRestore
+	for rows.Next() {
+		var agent AgentToRestore
+		err := rows.Scan(
+			&agent.AgentID,
+			&agent.UserID,
+			&agent.Symbol,
+			&agent.Balance,
+			&agent.InitialBalance,
+			&agent.Exchange,
+			&agent.APIKey,
+			&agent.APISecret,
+			&agent.Testnet,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan agent: %w", err)
+		}
+
+		agents = append(agents, agent)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return agents, nil
+}
