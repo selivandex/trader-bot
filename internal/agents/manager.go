@@ -55,6 +55,7 @@ type AgenticRunner struct {
 	ReflectionEngine *ReflectionEngine      // Post-trade learning
 	PlanningEngine   *PlanningEngine        // Forward planning
 	MemoryManager    *SemanticMemoryManager // Episodic memory
+	ValidatorCouncil *ValidatorCouncil      // Multi-AI validator consensus
 	Exchange         exchange.Exchange
 	Lock             redisAdapter.AgentLock // Distributed lock for K8s (interface)
 	Notifier         Notifier               // Telegram notifier (can be nil)
@@ -178,6 +179,9 @@ func (am *AgenticManager) StartAgenticAgent(
 	cotEngine := NewChainOfThoughtEngine(config, aiProvider, memoryManager)
 	reflectionEngine := NewReflectionEngine(config, aiProvider, am.repository, memoryManager)
 	planningEngine := NewPlanningEngine(config, aiProvider, am.repository, memoryManager)
+	
+	// Create validator council with all available AI providers for consensus
+	validatorCouncil := NewValidatorCouncil(config, am.aiProviders, nil)
 
 	// Create agent context
 	agentCtx, agentCancel := context.WithCancel(am.ctx)
@@ -189,6 +193,7 @@ func (am *AgenticManager) StartAgenticAgent(
 		ReflectionEngine: reflectionEngine,
 		PlanningEngine:   planningEngine,
 		MemoryManager:    memoryManager,
+		ValidatorCouncil: validatorCouncil,
 		Exchange:         exchangeAdapter,
 		Lock:             lock, // Store lock in runner
 		Notifier:         am.notifier,
@@ -330,7 +335,56 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 		zap.Int("reasoning_steps", len(reasoningTrace.ChainOfThought.Steps)),
 	)
 
-	// Step 6: Execute decision if not HOLD
+	// Step 6: Validate decision through validator council (if not HOLD)
+	if decision.Action != models.ActionHold && runner.ValidatorCouncil != nil {
+		if runner.ValidatorCouncil.ShouldValidate(decision) {
+			logger.Info("🏛️ Submitting decision to validator council",
+				zap.String("agent", runner.Config.Name),
+				zap.String("action", string(decision.Action)),
+			)
+
+			position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
+			consensusResult, err := runner.ValidatorCouncil.ValidateDecision(ctx, decision, marketData, position)
+			if err != nil {
+				logger.Error("validator council failed, skipping execution",
+					zap.String("agent", runner.Config.Name),
+					zap.Error(err),
+				)
+				return err
+			}
+
+			// Log validator votes
+			logger.Info("🏛️ Validator council verdict",
+				zap.String("agent", runner.Config.Name),
+				zap.String("verdict", string(consensusResult.FinalVerdict)),
+				zap.Float64("approval_rate", consensusResult.ApprovalRate),
+				zap.Bool("execution_allowed", consensusResult.ExecutionAllowed),
+			)
+
+			// Add consensus summary to decision reason
+			decision.Reason += "\n\n" + consensusResult.ConsensusSummary
+
+			// Only execute if council approves
+			if !consensusResult.ExecutionAllowed {
+				logger.Warn("⛔ Decision REJECTED by validator council, not executing",
+					zap.String("agent", runner.Config.Name),
+					zap.String("action", string(decision.Action)),
+					zap.Float64("approval_rate", consensusResult.ApprovalRate),
+				)
+				// Save decision as rejected
+				decision.Executed = false
+				decision.Outcome = `{"rejected_by_council": true, "reason": "Failed validator consensus"}`
+				return nil
+			}
+
+			logger.Info("✅ Decision APPROVED by validator council, executing",
+				zap.String("agent", runner.Config.Name),
+				zap.String("action", string(decision.Action)),
+			)
+		}
+	}
+
+	// Step 7: Execute decision if approved (or if validation not required)
 	if decision.Action != models.ActionHold {
 		position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
 
@@ -343,7 +397,7 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 		}
 	}
 
-	// Step 7: Update agent state
+	// Step 8: Update agent state
 	am.updateAgentState(ctx, runner)
 
 	return nil

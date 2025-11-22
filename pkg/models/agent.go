@@ -45,8 +45,9 @@ type AgentConfig struct {
 	UserID              string              `json:"user_id" db:"user_id"`
 	Name                string              `json:"name" db:"name"`
 	Personality         AgentPersonality    `json:"personality" db:"personality"`
-	Specialization      AgentSpecialization `json:"specialization" db:"specialization"` // JSONB
-	Strategy            StrategyParameters  `json:"strategy" db:"strategy"`             // JSONB
+	Specialization      AgentSpecialization `json:"specialization" db:"specialization"`       // JSONB
+	Strategy            StrategyParameters  `json:"strategy" db:"strategy"`                   // JSONB
+	ValidationConfig    *ValidationConfig   `json:"validation_config" db:"validation_config"` // JSONB
 	DecisionInterval    time.Duration       `json:"decision_interval" db:"decision_interval"`
 	MinNewsImpact       float64             `json:"min_news_impact" db:"min_news_impact"`
 	MinWhaleTransaction decimal.Decimal     `json:"min_whale_transaction" db:"min_whale_transaction"`
@@ -55,6 +56,15 @@ type AgentConfig struct {
 	IsActive            bool                `json:"is_active" db:"is_active"`
 	CreatedAt           time.Time           `json:"created_at" db:"created_at"`
 	UpdatedAt           time.Time           `json:"updated_at" db:"updated_at"`
+}
+
+// ValidationConfig configures validator council for agent
+type ValidationConfig struct {
+	Enabled                    bool    `json:"enabled"`
+	MinConfidenceForValidation int     `json:"min_confidence_for_validation"` // 60 = validate if confidence >= 60%
+	ConsensusThreshold         float64 `json:"consensus_threshold"`           // 0.66 = 2/3 must approve
+	RequireUnanimous           bool    `json:"require_unanimous"`             // If true, ALL validators must approve
+	ValidateOnlyHighRisk       bool    `json:"validate_only_high_risk"`       // Only validate high leverage/size trades
 }
 
 // AgentState represents runtime state of an agent

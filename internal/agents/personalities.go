@@ -42,6 +42,13 @@ func NewConservativeAgent(userID string, name string) *models.AgentConfig {
 			TakeProfitPercent:      3.0,  // Conservative profit targets
 			MinConfidenceThreshold: 80,   // High confidence required
 		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 70,   // Validate even moderate confidence decisions
+			ConsensusThreshold:         0.66, // 2/3 validators must approve
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
+		},
 		DecisionInterval:    1 * time.Hour,                 // Trades infrequently
 		MinNewsImpact:       9.0,                           // Only reacts to critical news
 		MinWhaleTransaction: models.NewDecimal(50_000_000), // $50M+
@@ -73,6 +80,13 @@ func NewAggressiveAgent(userID string, name string) *models.AgentConfig {
 			StopLossPercent:        3.0,  // Wider stops
 			TakeProfitPercent:      10.0, // Ambitious targets
 			MinConfidenceThreshold: 60,   // Lower threshold
+		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 55,   // Validate most decisions (aggressive = risky)
+			ConsensusThreshold:         0.75, // Require 3/4 approval (stricter for aggressive)
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
 		},
 		DecisionInterval:    10 * time.Minute, // Trades frequently
 		MinNewsImpact:       6.0,
@@ -106,6 +120,13 @@ func NewBalancedAgent(userID string, name string) *models.AgentConfig {
 			TakeProfitPercent:      5.0,
 			MinConfidenceThreshold: 70,
 		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 65,   // Standard validation threshold
+			ConsensusThreshold:         0.66, // 2/3 majority
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
+		},
 		DecisionInterval:    30 * time.Minute, // Standard interval
 		MinNewsImpact:       7.0,
 		MinWhaleTransaction: models.NewDecimal(10_000_000), // $10M+
@@ -137,6 +158,13 @@ func NewScalperAgent(userID string, name string) *models.AgentConfig {
 			StopLossPercent:        1.0, // Very tight stops
 			TakeProfitPercent:      2.0, // Quick profits
 			MinConfidenceThreshold: 65,
+		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    false, // Disabled for scalper (too frequent)
+			MinConfidenceForValidation: 60,
+			ConsensusThreshold:         0.66,
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       true, // Only validate high leverage if enabled
 		},
 		DecisionInterval:    5 * time.Minute,                // Very frequent
 		MinNewsImpact:       10.0,                           // Only extreme news
@@ -170,6 +198,13 @@ func NewSwingAgent(userID string, name string) *models.AgentConfig {
 			TakeProfitPercent:      8.0, // Larger targets
 			MinConfidenceThreshold: 72,
 		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 68,   // Validate moderate+ confidence
+			ConsensusThreshold:         0.66, // 2/3 majority
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
+		},
 		DecisionInterval:    2 * time.Hour, // Less frequent
 		MinNewsImpact:       7.5,
 		MinWhaleTransaction: models.NewDecimal(15_000_000), // $15M+
@@ -201,6 +236,13 @@ func NewNewsTraderAgent(userID string, name string) *models.AgentConfig {
 			StopLossPercent:        2.0,
 			TakeProfitPercent:      5.0,
 			MinConfidenceThreshold: 70,
+		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 65,   // Validate news-driven decisions
+			ConsensusThreshold:         0.66, // 2/3 majority
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
 		},
 		DecisionInterval:    15 * time.Minute,              // Reacts quickly to news
 		MinNewsImpact:       8.0,                           // Only high-impact news
@@ -234,6 +276,13 @@ func NewWhaleHunterAgent(userID string, name string) *models.AgentConfig {
 			TakeProfitPercent:      6.0,
 			MinConfidenceThreshold: 65,
 		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 60,   // Validate whale-based decisions
+			ConsensusThreshold:         0.66, // 2/3 majority
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
+		},
 		DecisionInterval:    20 * time.Minute,
 		MinNewsImpact:       8.5,
 		MinWhaleTransaction: models.NewDecimal(10_000_000), // $10M+ (key threshold)
@@ -265,6 +314,13 @@ func NewContrarianAgent(userID string, name string) *models.AgentConfig {
 			StopLossPercent:        2.0,
 			TakeProfitPercent:      7.0,
 			MinConfidenceThreshold: 75, // Requires high confidence for contrarian trades
+		},
+		ValidationConfig: &models.ValidationConfig{
+			Enabled:                    true,
+			MinConfidenceForValidation: 70,   // High threshold (contrarian is risky)
+			ConsensusThreshold:         0.75, // Require 3/4 approval (stricter for contrarian)
+			RequireUnanimous:           false,
+			ValidateOnlyHighRisk:       false,
 		},
 		DecisionInterval:    30 * time.Minute,
 		MinNewsImpact:       7.0,

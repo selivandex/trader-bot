@@ -713,6 +713,10 @@ func (ab *AgentBot) handleAdminCommand(ctx context.Context, telegramID int64, cm
 		ab.handleBanUser(ctx, telegramID, args)
 	case "unban_user":
 		ab.handleUnbanUser(ctx, telegramID, args)
+	case "deactivate_user":
+		ab.handleDeactivateUser(ctx, telegramID, args)
+	case "activate_user":
+		ab.handleActivateUser(ctx, telegramID, args)
 	case "stop_any_agent":
 		ab.handleStopAnyAgent(ctx, telegramID, args)
 	case "user_info":
@@ -1003,6 +1007,62 @@ func (ab *AgentBot) handleUnbanUser(ctx context.Context, telegramID int64, args 
 	// Notify unbanned user
 	if userStats != nil {
 		ab.sendTemplate(userStats.TelegramID, "user_restored.tmpl", nil)
+	}
+}
+
+func (ab *AgentBot) handleDeactivateUser(ctx context.Context, telegramID int64, args []string) {
+	if len(args) < 1 {
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "deactivate_user", nil)
+		return
+	}
+
+	userID := args[0]
+
+	err := ab.adminRepo.DeactivateUser(ctx, userID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
+
+	ab.sendTemplate(telegramID, "user_deactivated.tmpl", map[string]interface{}{
+		"Username": userStats.Username,
+	})
+
+	// Notify deactivated user
+	if userStats != nil {
+		ab.sendTemplate(userStats.TelegramID, "user_deactivated_notification.tmpl", nil)
+	}
+}
+
+func (ab *AgentBot) handleActivateUser(ctx context.Context, telegramID int64, args []string) {
+	if len(args) < 1 {
+		ab.sendTemplateWithName(telegramID, "usage.tmpl", "activate_user", nil)
+		return
+	}
+
+	userID := args[0]
+
+	err := ab.adminRepo.ActivateUser(ctx, userID)
+	if err != nil {
+		ab.sendTemplateWithName(telegramID, "errors.tmpl", "failed", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
+
+	ab.sendTemplate(telegramID, "user_activated.tmpl", map[string]interface{}{
+		"Username": userStats.Username,
+	})
+
+	// Notify activated user
+	if userStats != nil {
+		ab.sendTemplate(userStats.TelegramID, "user_activated_notification.tmpl", nil)
 	}
 }
 

@@ -132,11 +132,14 @@ type TradingSituation struct {
 
 // TradingOption represents one possible action agent could take
 type TradingOption struct {
-	OptionID    string           `json:"option_id"`
-	Action      AIAction         `json:"action"`      // OPEN_LONG, OPEN_SHORT, HOLD, CLOSE
-	Description string           `json:"description"` // "Go long with 2x leverage targeting $45k"
-	Parameters  OptionParameters `json:"parameters"`
-	Reasoning   string           `json:"reasoning"` // Why this option exists
+	OptionID        string           `json:"option_id"`
+	Action          AIAction         `json:"action"`      // OPEN_LONG, OPEN_SHORT, HOLD, CLOSE
+	Description     string           `json:"description"` // "Go long with 2x leverage targeting $45k"
+	Parameters      OptionParameters `json:"parameters"`
+	Reasoning       string           `json:"reasoning"`        // Why this option exists
+	ExpectedOutcome string           `json:"expected_outcome"` // Expected result
+	EstimatedRisk   string           `json:"estimated_risk"`   // Risk level: Low/Medium/High
+	Timeframe       string           `json:"timeframe"`        // Expected holding period
 }
 
 // OptionParameters contains trade parameters for option
@@ -158,6 +161,7 @@ type OptionEvaluation struct {
 	Opportunities   []string `json:"opportunities"`
 	ExpectedOutcome string   `json:"expected_outcome"` // "Likely +2-3% over 6h"
 	Confidence      float64  `json:"confidence"`       // 0.0 - 1.0
+	ConfidenceScore int      `json:"confidence_score"` // 0-100 for validator compatibility
 	Reasoning       string   `json:"reasoning"`        // Detailed analysis
 }
 
@@ -250,11 +254,11 @@ type CollectiveMemory struct {
 
 // MemoryConfirmation tracks agent's validation of collective memory
 type MemoryConfirmation struct {
-	ID                  string          `json:"id" db:"id"`
-	CollectiveMemoryID  string          `json:"collective_memory_id" db:"collective_memory_id"`
-	AgentID             string          `json:"agent_id" db:"agent_id"`
-	WasSuccessful       bool            `json:"was_successful" db:"was_successful"`
-	TradeCount          int             `json:"trade_count" db:"trade_count"`
-	PnLSum              decimal.Decimal `json:"pnl_sum" db:"pnl_sum"`
-	ConfirmedAt         time.Time       `json:"confirmed_at" db:"confirmed_at"`
+	ID                 string          `json:"id" db:"id"`
+	CollectiveMemoryID string          `json:"collective_memory_id" db:"collective_memory_id"`
+	AgentID            string          `json:"agent_id" db:"agent_id"`
+	WasSuccessful      bool            `json:"was_successful" db:"was_successful"`
+	TradeCount         int             `json:"trade_count" db:"trade_count"`
+	PnLSum             decimal.Decimal `json:"pnl_sum" db:"pnl_sum"`
+	ConfirmedAt        time.Time       `json:"confirmed_at" db:"confirmed_at"`
 }
