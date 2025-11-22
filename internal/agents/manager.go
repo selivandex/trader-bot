@@ -11,101 +11,89 @@ import (
 
 	"github.com/alexanderselivanov/trader/internal/adapters/ai"
 	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
+	"github.com/alexanderselivanov/trader/internal/adapters/market"
 	"github.com/alexanderselivanov/trader/internal/adapters/news"
-	"github.com/alexanderselivanov/trader/internal/portfolio"
-	"github.com/alexanderselivanov/trader/internal/risk"
+	"github.com/alexanderselivanov/trader/internal/indicators"
 	"github.com/alexanderselivanov/trader/pkg/logger"
 	"github.com/alexanderselivanov/trader/pkg/models"
 )
 
-// Manager orchestrates multiple AI agents
-type Manager struct {
+// AgenticManager manages autonomous AI agents with full thinking capabilities
+// This is the upgraded manager that uses Chain-of-Thought, Memory, Reflection, and Planning
+type AgenticManager struct {
 	mu             sync.RWMutex
 	db             *sqlx.DB
 	repository     *Repository
-	memoryManager  *MemoryManager
+	marketRepo     *market.Repository
 	newsAggregator *news.Aggregator
-	aiProviders    map[string]ai.Provider  // AI providers available for agents
-	runningAgents  map[string]*AgentRunner // agentID -> runner
+	aiProviders    map[string]ai.AgenticProvider // Only agentic providers
+	runningAgents  map[string]*AgenticRunner     // agentID -> runner
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
 
-// AgentRunner represents a running agent instance
-type AgentRunner struct {
-	Config         *models.AgentConfig
-	State          *models.AgentState
-	DecisionEngine *DecisionEngine
-	Exchange       exchange.Exchange
-	Portfolio      *portfolio.Tracker
-	RiskManager    *risk.Validator
-	CancelFunc     context.CancelFunc
-	IsRunning      bool
-	LastDecisionAt time.Time
+// AgenticRunner represents a fully autonomous agent
+type AgenticRunner struct {
+	Config           *models.AgentConfig
+	State            *models.AgentState
+	CoTEngine        *ChainOfThoughtEngine  // Chain-of-Thought reasoning
+	ReflectionEngine *ReflectionEngine      // Post-trade learning
+	PlanningEngine   *PlanningEngine        // Forward planning
+	MemoryManager    *SemanticMemoryManager // Episodic memory
+	Exchange         exchange.Exchange
+	CancelFunc       context.CancelFunc
+	IsRunning        bool
+	LastDecisionAt   time.Time
+	LastReflectionAt time.Time
+	LastPlanningAt   time.Time
 }
 
-// NewManager creates new agent manager
-func NewManager(db *sqlx.DB, newsAggregator *news.Aggregator, aiProviders []ai.Provider) *Manager {
+// NewAgenticManager creates new agentic agent manager
+func NewAgenticManager(db *sqlx.DB, marketRepo *market.Repository, newsAggregator *news.Aggregator, aiProviders []ai.Provider) *AgenticManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Map AI providers by name for easy lookup
-	providerMap := make(map[string]ai.Provider)
+	// Filter only agentic providers
+	agenticProviders := make(map[string]ai.AgenticProvider)
 	for _, provider := range aiProviders {
-		if provider.IsEnabled() {
-			providerMap[provider.GetName()] = provider
+		if agenticProvider := ai.GetAgenticProvider(provider); agenticProvider != nil {
+			agenticProviders[provider.GetName()] = agenticProvider
 		}
 	}
 
-	repo := NewRepository(db)
+	if len(agenticProviders) == 0 {
+		logger.Warn("⚠️ No agentic AI providers available - agents will have limited autonomous capabilities")
+	}
 
-	return &Manager{
+	return &AgenticManager{
 		db:             db,
-		repository:     repo,
-		memoryManager:  NewMemoryManager(repo),
+		repository:     NewRepository(db),
+		marketRepo:     marketRepo,
 		newsAggregator: newsAggregator,
-		aiProviders:    providerMap,
-		runningAgents:  make(map[string]*AgentRunner),
+		aiProviders:    agenticProviders,
+		runningAgents:  make(map[string]*AgenticRunner),
 		ctx:            ctx,
 		cancel:         cancel,
 	}
 }
 
-// CreateAgent creates a new agent from preset personality
-func (m *Manager) CreateAgent(ctx context.Context, userID string, personality models.AgentPersonality, name string) (*models.AgentConfig, error) {
-	presetFunc, ok := PresetAgentConfigs[personality]
-	if !ok {
-		return nil, fmt.Errorf("unknown personality: %s", personality)
-	}
-
-	config := presetFunc(userID, name)
-
-	// Save to database
-	savedConfig, err := m.repository.CreateAgent(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create agent: %w", err)
-	}
-
-	logger.Info("agent created",
-		zap.String("agent_id", savedConfig.ID),
-		zap.String("name", savedConfig.Name),
-		zap.String("personality", string(savedConfig.Personality)),
-	)
-
-	return savedConfig, nil
-}
-
-// StartAgent starts an agent for a specific trading pair
-func (m *Manager) StartAgent(ctx context.Context, agentID string, symbol string, initialBalance float64, exchangeAdapter exchange.Exchange) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// StartAgenticAgent starts a fully autonomous agent
+func (am *AgenticManager) StartAgenticAgent(
+	ctx context.Context,
+	agentID string,
+	symbol string,
+	initialBalance float64,
+	exchangeAdapter exchange.Exchange,
+) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
 	// Check if already running
-	if runner, exists := m.runningAgents[agentID]; exists && runner.IsRunning {
+	if runner, exists := am.runningAgents[agentID]; exists && runner.IsRunning {
 		return fmt.Errorf("agent already running")
 	}
 
 	// Load agent config
-	config, err := m.repository.GetAgent(ctx, agentID)
+	config, err := am.repository.GetAgent(ctx, agentID)
 	if err != nil {
 		return fmt.Errorf("failed to load agent config: %w", err)
 	}
@@ -114,10 +102,20 @@ func (m *Manager) StartAgent(ctx context.Context, agentID string, symbol string,
 		return fmt.Errorf("agent is not active")
 	}
 
+	// Select AI provider
+	aiProvider := am.selectAgenticProvider(config)
+	if aiProvider == nil {
+		return fmt.Errorf("no agentic AI providers available")
+	}
+
+	logger.Info("🧠 Assigned agentic AI provider",
+		zap.String("agent_id", agentID),
+		zap.String("provider", aiProvider.GetName()),
+	)
+
 	// Initialize or load agent state
-	state, err := m.repository.GetAgentState(ctx, agentID, symbol)
+	state, err := am.repository.GetAgentState(ctx, agentID, symbol)
 	if err != nil {
-		// Create new state
 		state = &models.AgentState{
 			AgentID:        agentID,
 			Symbol:         symbol,
@@ -128,61 +126,41 @@ func (m *Manager) StartAgent(ctx context.Context, agentID string, symbol string,
 			IsTrading:      true,
 		}
 
-		if err := m.repository.CreateAgentState(ctx, state); err != nil {
+		if err := am.repository.CreateAgentState(ctx, state); err != nil {
 			return fmt.Errorf("failed to create agent state: %w", err)
 		}
 	}
 
-	// Select AI provider for this agent (round-robin or based on personality)
-	aiProvider := m.selectAIProviderForAgent(config)
-	if aiProvider == nil {
-		return fmt.Errorf("no AI providers available")
-	}
-
-	logger.Info("assigned AI provider to agent",
-		zap.String("agent_id", agentID),
-		zap.String("provider", aiProvider.GetName()),
-	)
-
-	// Create decision engine with AI provider
-	decisionEngine := NewDecisionEngine(config, aiProvider)
-
-	// Create portfolio tracker for agent
-	portfolioTracker := NewAgentPortfolioTracker(
-		config.ID,
-		symbol,
-		initialBalance,
-		exchangeAdapter,
-		m.repository,
-	)
-	if err := portfolioTracker.Initialize(ctx); err != nil {
-		return fmt.Errorf("failed to initialize portfolio: %w", err)
-	}
-
-	// Create risk validator
-	riskValidator := risk.NewValidator()
+	// Create all agent components
+	memoryManager := NewSemanticMemoryManager(am.repository, aiProvider)
+	cotEngine := NewChainOfThoughtEngine(config, aiProvider, memoryManager)
+	reflectionEngine := NewReflectionEngine(config, aiProvider, am.repository, memoryManager)
+	planningEngine := NewPlanningEngine(config, aiProvider, am.repository, memoryManager)
 
 	// Create agent context
-	agentCtx, agentCancel := context.WithCancel(m.ctx)
+	agentCtx, agentCancel := context.WithCancel(am.ctx)
 
-	runner := &AgentRunner{
-		Config:         config,
-		State:          state,
-		DecisionEngine: decisionEngine,
-		Exchange:       exchangeAdapter,
-		Portfolio:      nil, // AgentPortfolioTracker (different type than portfolio.Tracker)
-		RiskManager:    riskValidator,
-		CancelFunc:     agentCancel,
-		IsRunning:      true,
-		LastDecisionAt: time.Now(),
+	runner := &AgenticRunner{
+		Config:           config,
+		State:            state,
+		CoTEngine:        cotEngine,
+		ReflectionEngine: reflectionEngine,
+		PlanningEngine:   planningEngine,
+		MemoryManager:    memoryManager,
+		Exchange:         exchangeAdapter,
+		CancelFunc:       agentCancel,
+		IsRunning:        true,
+		LastDecisionAt:   time.Now(),
+		LastReflectionAt: time.Now(),
+		LastPlanningAt:   time.Now(),
 	}
 
-	m.runningAgents[agentID] = runner
+	am.runningAgents[agentID] = runner
 
 	// Start agent goroutine
-	go m.runAgent(agentCtx, runner)
+	go am.runAgenticAgent(agentCtx, runner)
 
-	logger.Info("agent started",
+	logger.Info("🤖 Autonomous agent started",
 		zap.String("agent_id", agentID),
 		zap.String("name", config.Name),
 		zap.String("symbol", symbol),
@@ -192,25 +170,22 @@ func (m *Manager) StartAgent(ctx context.Context, agentID string, symbol string,
 	return nil
 }
 
-// runAgent is the main loop for an agent
-func (m *Manager) runAgent(ctx context.Context, runner *AgentRunner) {
+// runAgenticAgent is the main autonomous agent loop
+func (am *AgenticManager) runAgenticAgent(ctx context.Context, runner *AgenticRunner) {
 	ticker := time.NewTicker(runner.Config.DecisionInterval)
 	defer ticker.Stop()
 
-	logger.Info("agent loop started",
+	logger.Info("🧠 Autonomous agent loop started",
 		zap.String("agent_id", runner.Config.ID),
 		zap.String("name", runner.Config.Name),
 	)
 
-	// Run immediately on start
-	if err := m.executeTradingCycle(ctx, runner); err != nil {
-		logger.Error("trading cycle failed",
-			zap.String("agent_id", runner.Config.ID),
-			zap.Error(err),
-		)
+	// Create initial plan
+	if err := am.createInitialPlan(ctx, runner); err != nil {
+		logger.Error("failed to create initial plan", zap.Error(err))
 	}
 
-	// Then run on interval
+	// Main agent loop
 	for {
 		select {
 		case <-ctx.Done():
@@ -224,238 +199,211 @@ func (m *Manager) runAgent(ctx context.Context, runner *AgentRunner) {
 				continue
 			}
 
-			if err := m.executeTradingCycle(ctx, runner); err != nil {
-				logger.Error("trading cycle failed",
+			// Execute one autonomous thinking cycle
+			if err := am.executeAgenticCycle(ctx, runner); err != nil {
+				logger.Error("agentic cycle failed",
 					zap.String("agent_id", runner.Config.ID),
 					zap.Error(err),
 				)
 			}
 
-			// Check if should adapt strategy
-			shouldAdapt, err := m.memoryManager.ShouldAdapt(ctx, runner.Config.ID)
-			if err != nil {
-				logger.Error("failed to check adaptation",
-					zap.String("agent_id", runner.Config.ID),
-					zap.Error(err),
-				)
-			} else if shouldAdapt {
-				if err := m.memoryManager.AdaptStrategy(ctx, runner.Config.ID, runner.Config); err != nil {
-					logger.Error("failed to adapt strategy",
-						zap.String("agent_id", runner.Config.ID),
-						zap.Error(err),
-					)
+			// Periodic self-reflection (every 24h or after 20 trades)
+			if time.Since(runner.LastReflectionAt) > 24*time.Hour {
+				if err := runner.ReflectionEngine.ReflectPeriodically(ctx, runner.State.Symbol); err != nil {
+					logger.Error("periodic reflection failed", zap.Error(err))
 				} else {
-					logger.Info("agent adapted strategy",
-						zap.String("agent_id", runner.Config.ID),
-					)
-					// Reload config and recreate decision engine
-					newConfig, err := m.repository.GetAgent(ctx, runner.Config.ID)
-					if err == nil {
-						runner.Config = newConfig
-						aiProvider := m.selectAIProviderForAgent(newConfig)
-						if aiProvider != nil {
-							runner.DecisionEngine = NewDecisionEngine(newConfig, aiProvider)
-						}
-					}
+					runner.LastReflectionAt = time.Now()
 				}
+			}
+
+			// Memory consolidation (forget unimportant memories weekly)
+			if time.Now().Weekday() == time.Sunday && time.Now().Hour() == 0 {
+				runner.MemoryManager.Forget(ctx, runner.Config.ID, 0.3)
 			}
 		}
 	}
 }
 
-// executeTradingCycle executes one trading cycle for an agent
-func (m *Manager) executeTradingCycle(ctx context.Context, runner *AgentRunner) error {
-	logger.Debug("executing agent trading cycle",
+// executeAgenticCycle executes one autonomous thinking cycle
+func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *AgenticRunner) error {
+	logger.Debug("🤔 Agent thinking cycle",
 		zap.String("agent_id", runner.Config.ID),
-		zap.String("symbol", runner.State.Symbol),
 	)
 
-	// Collect market data
-	marketData, err := m.collectMarketData(ctx, runner)
+	// Step 1: Collect market data
+	marketData, err := am.collectMarketData(ctx, runner)
 	if err != nil {
 		return fmt.Errorf("failed to collect market data: %w", err)
 	}
 
-	// Get current position and balance from state
-	position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
-	balance, _ := runner.State.Balance.Float64()
-	equity, _ := runner.State.Equity.Float64()
+	// Step 2: Check if should revise plan
+	shouldRevise, reason := runner.PlanningEngine.ShouldRevisePlan(marketData)
+	if shouldRevise {
+		logger.Info("📋 Revising plan",
+			zap.String("agent", runner.Config.Name),
+			zap.String("reason", reason),
+		)
 
-	// Calculate daily PnL from today's trades
-	dailyPnL, err := m.repository.GetDailyPnL(ctx, runner.Config.ID, runner.State.Symbol)
-	if err != nil {
-		dailyPnL = 0.0 // Fallback to 0 on error
+		// Create new 24h plan
+		_, err := runner.PlanningEngine.CreatePlan(ctx, marketData, nil, 24*time.Hour)
+		if err != nil {
+			logger.Warn("failed to create plan", zap.Error(err))
+		}
+		runner.LastPlanningAt = time.Now()
 	}
 
-	// Make decision with actual balance from state
-	decision, err := runner.DecisionEngine.Analyze(ctx, marketData, position, balance, equity, dailyPnL)
+	// Step 3: Get current position
+	position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
+
+	// Step 4: Execute Chain-of-Thought reasoning
+	decision, reasoningTrace, err := runner.CoTEngine.Think(ctx, marketData, position)
 	if err != nil {
-		return fmt.Errorf("failed to analyze market: %w", err)
+		return fmt.Errorf("thinking failed: %w", err)
 	}
 
 	runner.LastDecisionAt = time.Now()
 
-	// Save decision to database
-	if err := m.repository.SaveDecision(ctx, decision); err != nil {
+	// Step 5: Save decision with reasoning trace
+	if err := am.repository.SaveDecision(ctx, decision); err != nil {
 		logger.Error("failed to save decision", zap.Error(err))
 	}
 
-	logger.Info("agent decision",
-		zap.String("agent_id", runner.Config.ID),
-		zap.String("agent_name", runner.Config.Name),
+	logger.Info("💭 Autonomous decision made",
+		zap.String("agent", runner.Config.Name),
 		zap.String("action", string(decision.Action)),
 		zap.Int("confidence", decision.Confidence),
-		zap.Float64("final_score", decision.FinalScore),
+		zap.Int("reasoning_steps", len(reasoningTrace.ChainOfThought.Steps)),
 	)
 
-	// Execute if not HOLD
+	// Step 6: Execute decision if not HOLD
 	if decision.Action != models.ActionHold {
-		if err := m.executeDecision(ctx, runner, decision, position); err != nil {
+		position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
+
+		if err := am.executeAgenticDecision(ctx, runner, decision, position); err != nil {
 			logger.Error("failed to execute decision",
-				zap.String("agent_id", runner.Config.ID),
+				zap.String("agent", runner.Config.Name),
 				zap.Error(err),
 			)
 			return err
 		}
 	}
 
-	// Update agent state
-	if err := m.updateAgentState(ctx, runner); err != nil {
-		logger.Error("failed to update agent state", zap.Error(err))
-	}
+	// Step 7: Update agent state
+	am.updateAgentState(ctx, runner)
 
 	return nil
 }
 
-// collectMarketData collects market data for decision making
-func (m *Manager) collectMarketData(ctx context.Context, runner *AgentRunner) (*models.MarketData, error) {
+// createInitialPlan creates 24h plan when agent starts
+func (am *AgenticManager) createInitialPlan(ctx context.Context, runner *AgenticRunner) error {
+	marketData, err := am.collectMarketData(ctx, runner)
+	if err != nil {
+		return err
+	}
+
+	_, err = runner.PlanningEngine.CreatePlan(ctx, marketData, nil, 24*time.Hour)
+	if err != nil {
+		return fmt.Errorf("failed to create initial plan: %w", err)
+	}
+
+	runner.LastPlanningAt = time.Now()
+	return nil
+}
+
+// collectMarketData collects market data for agent (from cache)
+func (am *AgenticManager) collectMarketData(ctx context.Context, runner *AgenticRunner) (*models.MarketData, error) {
 	symbol := runner.State.Symbol
 
-	// Fetch ticker
+	// Get latest ticker from exchange (real-time price critical for execution)
 	ticker, err := runner.Exchange.FetchTicker(ctx, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch ticker: %w", err)
 	}
 
-	// Fetch candles
-	candles, err := runner.Exchange.FetchOHLCV(ctx, symbol, "1h", 100)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch candles: %w", err)
+	// Get candles for multiple timeframes from database cache
+	timeframes := []string{"5m", "15m", "1h", "4h"}
+	candlesMap := make(map[string][]models.Candle)
+
+	for _, tf := range timeframes {
+		candles, err := am.marketRepo.GetCandles(ctx, symbol, tf, 100)
+		if err != nil {
+			// Fallback to exchange if cache empty
+			logger.Warn("candles cache miss, fetching from exchange",
+				zap.String("symbol", symbol),
+				zap.String("timeframe", tf),
+			)
+			candles, err = runner.Exchange.FetchOHLCV(ctx, symbol, tf, 100)
+			if err != nil {
+				logger.Warn("failed to fetch candles", zap.Error(err))
+				continue // Skip this timeframe
+			}
+		}
+		candlesMap[tf] = candles
 	}
 
-	candlesMap := map[string][]models.Candle{
-		"1h": candles,
-	}
+	// Calculate technical indicators for multiple timeframes
+	calc := indicators.NewCalculator()
+	var technicalIndicators *models.TechnicalIndicators
 
-	// Fetch order book
-	orderBook, err := runner.Exchange.FetchOrderBook(ctx, symbol, 20)
-	if err != nil {
-		logger.Warn("failed to fetch order book", zap.Error(err))
-	}
+	// Use 1h as primary timeframe for indicators structure
+	if candles1h, ok := candlesMap["1h"]; ok && len(candles1h) >= 26 {
+		technicalIndicators, err = calc.Calculate(candles1h)
+		if err != nil {
+			logger.Warn("failed to calculate 1h indicators", zap.Error(err))
+		}
 
-	// Fetch funding rate
-	fundingRate, err := runner.Exchange.FetchFundingRate(ctx, symbol)
-	if err != nil {
-		logger.Warn("failed to fetch funding rate", zap.Error(err))
-		fundingRate = 0
+		// Calculate RSI for other timeframes and add to map
+		if technicalIndicators != nil && technicalIndicators.RSI != nil {
+			for tf, candles := range candlesMap {
+				if tf != "1h" && len(candles) >= 14 {
+					// Calculate RSI for other timeframes
+					rsiValue, err := calc.CalculateRSI(candles, 14)
+					if err == nil {
+						technicalIndicators.RSI[tf] = models.NewDecimal(rsiValue)
+					}
+				}
+			}
+		}
 	}
 
 	// Get cached news
 	var newsSummary *models.NewsSummary
-	if m.newsAggregator != nil {
-		newsSummary, err = m.newsAggregator.GetCachedSummary(ctx, 6*time.Hour)
+	if am.newsAggregator != nil {
+		newsSummary, err = am.newsAggregator.GetCachedSummary(ctx, 6*time.Hour)
 		if err != nil {
 			logger.Warn("failed to get cached news", zap.Error(err))
 		}
 	}
 
+	// Get on-chain data from cache
+	onChainData := am.getOnChainSummary(ctx, symbol)
+
 	marketData := &models.MarketData{
-		Symbol:       symbol,
-		Ticker:       ticker,
-		Candles:      candlesMap,
-		OrderBook:    orderBook,
-		FundingRate:  models.NewDecimal(fundingRate),
-		OpenInterest: models.NewDecimal(0), // TODO: implement
-		NewsSummary:  newsSummary,
-		Timestamp:    time.Now(),
+		Symbol:      symbol,
+		Ticker:      ticker,
+		Candles:     candlesMap,
+		Indicators:  technicalIndicators,
+		NewsSummary: newsSummary,
+		OnChainData: onChainData,
+		Timestamp:   time.Now(),
 	}
 
 	return marketData, nil
 }
 
-// executeDecision executes trading decision (simple agents use basic execution)
-func (m *Manager) executeDecision(ctx context.Context, runner *AgentRunner, decision *models.AgentDecision, position *models.Position) error {
-	logger.Info("simple agent executing trade",
-		zap.String("agent_id", runner.Config.ID),
-		zap.String("action", string(decision.Action)),
-		zap.Int("confidence", decision.Confidence),
-	)
-
-	// Simple execution without CoT/reflection (that's for AgenticManager)
-	decision.Executed = true
-
-	// TODO: Implement simple trade execution similar to AgenticManager
-	// For now, simple agents just make decisions without executing
-
-	return nil
+// updateAgentState updates agent state in database
+func (am *AgenticManager) updateAgentState(ctx context.Context, runner *AgenticRunner) error {
+	// Update balance/equity from current state
+	// AgentState is already updated in executeDecision when trades complete
+	return am.repository.CreateAgentState(ctx, runner.State)
 }
 
-// updateAgentState updates agent's trading state
-func (m *Manager) updateAgentState(ctx context.Context, runner *AgentRunner) error {
-	// Update from portfolio tracker if available
-	if runner.Portfolio != nil {
-		balance := runner.Portfolio.GetBalance()
-		equity := runner.Portfolio.GetEquity()
-		pnl := equity - runner.State.InitialBalance.InexactFloat64()
+// StopAgenticAgent stops autonomous agent
+func (am *AgenticManager) StopAgenticAgent(ctx context.Context, agentID string) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-		runner.State.Balance = models.NewDecimal(balance)
-		runner.State.Equity = models.NewDecimal(equity)
-		runner.State.PnL = models.NewDecimal(pnl)
-	}
-
-	// Save to database
-	return m.repository.CreateAgentState(ctx, runner.State)
-}
-
-// selectAIProviderForAgent selects appropriate AI provider for agent
-func (m *Manager) selectAIProviderForAgent(config *models.AgentConfig) ai.Provider {
-	// Strategy: Assign AI providers based on agent personality
-	// Conservative agents -> Claude (careful analysis)
-	// Aggressive agents -> DeepSeek (fast, cost-effective)
-	// News traders -> GPT (good at understanding context)
-	// Others -> round-robin
-
-	preferredProvider := ""
-	switch config.Personality {
-	case models.PersonalityConservative:
-		preferredProvider = "Claude"
-	case models.PersonalityAggressive, models.PersonalityScalper:
-		preferredProvider = "DeepSeek"
-	case models.PersonalityNewsTrader:
-		preferredProvider = "GPT"
-	}
-
-	// Try preferred provider first
-	if preferredProvider != "" {
-		if provider, ok := m.aiProviders[preferredProvider]; ok {
-			return provider
-		}
-	}
-
-	// Fallback to any available provider
-	for _, provider := range m.aiProviders {
-		return provider
-	}
-
-	return nil
-}
-
-// StopAgent stops a running agent
-func (m *Manager) StopAgent(ctx context.Context, agentID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	runner, exists := m.runningAgents[agentID]
+	runner, exists := am.runningAgents[agentID]
 	if !exists {
 		return fmt.Errorf("agent not running")
 	}
@@ -465,13 +413,13 @@ func (m *Manager) StopAgent(ctx context.Context, agentID string) error {
 
 	// Update state
 	runner.State.IsTrading = false
-	if err := m.repository.CreateAgentState(ctx, runner.State); err != nil {
+	if err := am.repository.CreateAgentState(ctx, runner.State); err != nil {
 		logger.Error("failed to update agent state", zap.Error(err))
 	}
 
-	delete(m.runningAgents, agentID)
+	delete(am.runningAgents, agentID)
 
-	logger.Info("agent stopped",
+	logger.Info("🛑 Autonomous agent stopped",
 		zap.String("agent_id", agentID),
 		zap.String("name", runner.Config.Name),
 	)
@@ -479,13 +427,22 @@ func (m *Manager) StopAgent(ctx context.Context, agentID string) error {
 	return nil
 }
 
-// GetRunningAgents returns list of running agents
-func (m *Manager) GetRunningAgents() []*AgentRunner {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// GetAgenticRunner returns specific agentic agent runner
+func (am *AgenticManager) GetAgenticRunner(agentID string) (*AgenticRunner, bool) {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
 
-	runners := make([]*AgentRunner, 0, len(m.runningAgents))
-	for _, runner := range m.runningAgents {
+	runner, exists := am.runningAgents[agentID]
+	return runner, exists
+}
+
+// GetRunningAgents returns all running agentic agents
+func (am *AgenticManager) GetRunningAgents() []*AgenticRunner {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+
+	runners := make([]*AgenticRunner, 0, len(am.runningAgents))
+	for _, runner := range am.runningAgents {
 		if runner.IsRunning {
 			runners = append(runners, runner)
 		}
@@ -494,24 +451,15 @@ func (m *Manager) GetRunningAgents() []*AgentRunner {
 	return runners
 }
 
-// GetAgentRunner returns specific agent runner
-func (m *Manager) GetAgentRunner(agentID string) (*AgentRunner, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// Shutdown gracefully shuts down all agentic agents
+func (am *AgenticManager) Shutdown() error {
+	logger.Info("shutting down agentic agent manager...")
 
-	runner, exists := m.runningAgents[agentID]
-	return runner, exists
-}
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-// Shutdown gracefully shuts down all agents
-func (m *Manager) Shutdown() error {
-	logger.Info("shutting down agent manager...")
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for agentID, runner := range m.runningAgents {
-		logger.Info("stopping agent",
+	for agentID, runner := range am.runningAgents {
+		logger.Info("stopping autonomous agent",
 			zap.String("agent_id", agentID),
 			zap.String("name", runner.Config.Name),
 		)
@@ -519,17 +467,343 @@ func (m *Manager) Shutdown() error {
 		runner.CancelFunc()
 		runner.IsRunning = false
 
-		// Update state
+		// Final state save
 		runner.State.IsTrading = false
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := m.repository.CreateAgentState(ctx, runner.State); err != nil {
+		if err := am.repository.CreateAgentState(ctx, runner.State); err != nil {
 			logger.Error("failed to update agent state", zap.Error(err))
 		}
 		cancel()
 	}
 
-	m.cancel()
+	am.cancel()
 
-	logger.Info("agent manager shut down complete")
+	logger.Info("agentic agent manager shut down complete")
 	return nil
+}
+
+// executeAgenticDecision executes trading decision
+func (am *AgenticManager) executeAgenticDecision(
+	ctx context.Context,
+	runner *AgenticRunner,
+	decision *models.AgentDecision,
+	position *models.Position,
+) error {
+	logger.Info("🤖 Executing autonomous agent decision",
+		zap.String("agent_id", runner.Config.ID),
+		zap.String("agent_name", runner.Config.Name),
+		zap.String("action", string(decision.Action)),
+	)
+
+	switch decision.Action {
+	case models.ActionHold:
+		return nil
+
+	case models.ActionClose:
+		if position == nil || position.Side == models.PositionNone {
+			logger.Warn("no position to close")
+			return nil
+		}
+		return am.closePosition(ctx, runner, position, decision)
+
+	case models.ActionOpenLong:
+		return am.openPosition(ctx, runner, models.PositionLong, decision)
+
+	case models.ActionOpenShort:
+		return am.openPosition(ctx, runner, models.PositionShort, decision)
+
+	default:
+		return fmt.Errorf("unsupported action: %s", decision.Action)
+	}
+}
+
+// openPosition opens new position
+func (am *AgenticManager) openPosition(
+	ctx context.Context,
+	runner *AgenticRunner,
+	side models.PositionSide,
+	decision *models.AgentDecision,
+) error {
+	balance, _ := runner.State.Balance.Float64()
+	maxPositionPercent := runner.Config.Strategy.MaxPositionPercent
+	leverage := runner.Config.Strategy.MaxLeverage
+
+	ticker, err := runner.Exchange.FetchTicker(ctx, runner.State.Symbol)
+	if err != nil {
+		return fmt.Errorf("failed to fetch ticker: %w", err)
+	}
+	currentPrice, _ := ticker.Last.Float64()
+
+	positionValue := balance * maxPositionPercent / 100
+	size := positionValue / currentPrice
+
+	if err := runner.Exchange.SetLeverage(ctx, runner.State.Symbol, leverage); err != nil {
+		logger.Warn("failed to set leverage", zap.Error(err))
+	}
+
+	var orderSide models.OrderSide
+	if side == models.PositionLong {
+		orderSide = models.SideBuy
+	} else {
+		orderSide = models.SideSell
+	}
+
+	order, err := runner.Exchange.CreateOrder(ctx, runner.State.Symbol, models.TypeMarket, orderSide, size, 0)
+	if err != nil {
+		return fmt.Errorf("failed to create order: %w", err)
+	}
+
+	// Calculate SL/TP based on agent's strategy
+	stopLossPercent := runner.Config.Strategy.StopLossPercent / 100
+	takeProfitPercent := runner.Config.Strategy.TakeProfitPercent / 100
+
+	var stopLoss, takeProfit float64
+	var oppositeSide models.OrderSide
+
+	if side == models.PositionLong {
+		stopLoss = currentPrice * (1 - stopLossPercent)
+		takeProfit = currentPrice * (1 + takeProfitPercent)
+		oppositeSide = models.SideSell
+	} else {
+		stopLoss = currentPrice * (1 + stopLossPercent)
+		takeProfit = currentPrice * (1 - takeProfitPercent)
+		oppositeSide = models.SideBuy
+	}
+
+	// Set Stop Loss order (exit on loss)
+	_, err = runner.Exchange.CreateOrder(
+		ctx,
+		runner.State.Symbol,
+		models.TypeStopMarket, // Stop-market order
+		oppositeSide,
+		size,
+		stopLoss,
+	)
+	if err != nil {
+		logger.Warn("failed to create stop-loss order", zap.Error(err))
+		// Continue despite error - position is open
+	}
+
+	// Set Take Profit order (exit on profit)
+	_, err = runner.Exchange.CreateOrder(
+		ctx,
+		runner.State.Symbol,
+		models.TypeTakeProfitMarket, // Take-profit market order
+		oppositeSide,
+		size,
+		takeProfit,
+	)
+	if err != nil {
+		logger.Warn("failed to create take-profit order", zap.Error(err))
+		// Continue despite error - position is open
+	}
+
+	logger.Info("✅ Position opened by agent",
+		zap.String("agent", runner.Config.Name),
+		zap.String("personality", string(runner.Config.Personality)),
+		zap.String("side", string(side)),
+		zap.Float64("size", size),
+		zap.Float64("entry_price", currentPrice),
+		zap.Float64("stop_loss", stopLoss),
+		zap.Float64("take_profit", takeProfit),
+		zap.Int("leverage", leverage),
+		zap.Float64("sl_percent", runner.Config.Strategy.StopLossPercent),
+		zap.Float64("tp_percent", runner.Config.Strategy.TakeProfitPercent),
+	)
+
+	decision.Executed = true
+	decision.ExecutionPrice = order.Price
+	decision.ExecutionSize = models.NewDecimal(size)
+
+	return nil
+}
+
+// closePosition closes position and triggers reflection
+func (am *AgenticManager) closePosition(
+	ctx context.Context,
+	runner *AgenticRunner,
+	position *models.Position,
+	decision *models.AgentDecision,
+) error {
+	var orderSide models.OrderSide
+	if position.Side == models.PositionLong {
+		orderSide = models.SideSell
+	} else {
+		orderSide = models.SideBuy
+	}
+
+	size, _ := position.Size.Float64()
+	order, err := runner.Exchange.CreateOrder(ctx, runner.State.Symbol, models.TypeMarket, orderSide, size, 0)
+	if err != nil {
+		return fmt.Errorf("failed to close position: %w", err)
+	}
+
+	pnl, _ := position.UnrealizedPnL.Float64()
+	exitPrice, _ := order.Price.Float64()
+
+	logger.Info("✅ Position closed by agent",
+		zap.String("agent", runner.Config.Name),
+		zap.Float64("exit_price", exitPrice),
+		zap.Float64("pnl", pnl),
+	)
+
+	runner.State.Balance = runner.State.Balance.Add(models.NewDecimal(pnl))
+	runner.State.PnL = runner.State.PnL.Add(models.NewDecimal(pnl))
+
+	decision.Executed = true
+	decision.ExecutionPrice = order.Price
+
+	// Trigger reflection
+	tradeExp := &models.TradeExperience{
+		Symbol:        runner.State.Symbol,
+		Side:          string(position.Side),
+		EntryPrice:    position.EntryPrice,
+		ExitPrice:     order.Price,
+		Size:          position.Size,
+		PnL:           models.NewDecimal(pnl),
+		PnLPercent:    (pnl / position.Margin.InexactFloat64()) * 100,
+		Duration:      time.Since(position.Timestamp),
+		EntryReason:   decision.Reason,
+		ExitReason:    "Agent closed position",
+		WasSuccessful: pnl > 0,
+	}
+
+	go func() {
+		if err := runner.ReflectionEngine.Reflect(context.Background(), tradeExp); err != nil {
+			logger.Error("reflection failed", zap.Error(err))
+		}
+	}()
+
+	return nil
+}
+
+// selectAgenticProvider selects best agentic provider for agent
+func (am *AgenticManager) selectAgenticProvider(config *models.AgentConfig) ai.AgenticProvider {
+	// Strategy: Assign based on personality
+	// Conservative -> Claude (thoughtful, analytical)
+	// Aggressive -> DeepSeek (fast, decisive)
+	// News traders -> GPT (context understanding)
+
+	preferredProvider := ""
+	switch config.Personality {
+	case models.PersonalityConservative, models.PersonalitySwing:
+		preferredProvider = "Claude"
+	case models.PersonalityAggressive, models.PersonalityScalper:
+		preferredProvider = "DeepSeek"
+	case models.PersonalityNewsTrader:
+		preferredProvider = "GPT"
+	}
+
+	// Try preferred provider first
+	if preferredProvider != "" {
+		if provider, ok := am.aiProviders[preferredProvider]; ok {
+			return provider
+		}
+	}
+
+	// Fallback to any available agentic provider
+	for _, provider := range am.aiProviders {
+		return provider
+	}
+
+	return nil
+}
+
+// CreateAgentFromPersonality creates new agent from preset personality
+func (am *AgenticManager) CreateAgentFromPersonality(
+	ctx context.Context,
+	userID string,
+	personality models.AgentPersonality,
+	name string,
+) (*models.AgentConfig, error) {
+	presetFunc, ok := PresetAgentConfigs[personality]
+	if !ok {
+		return nil, fmt.Errorf("unknown personality: %s", personality)
+	}
+
+	config := presetFunc(userID, name)
+
+	// Save to database
+	savedConfig, err := am.repository.CreateAgent(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create agent: %w", err)
+	}
+
+	logger.Info("🎭 Autonomous agent created",
+		zap.String("agent_id", savedConfig.ID),
+		zap.String("name", savedConfig.Name),
+		zap.String("personality", string(savedConfig.Personality)),
+	)
+
+	return savedConfig, nil
+}
+
+// getOnChainSummary builds on-chain summary from cached whale data
+func (am *AgenticManager) getOnChainSummary(ctx context.Context, symbol string) *models.OnChainSummary {
+	// Get recent whale transactions from cache (last 24h, impact >= 6)
+	whaleTransactions, err := am.repository.GetRecentWhaleTransactions(ctx, symbol, 24, 6)
+	if err != nil {
+		logger.Warn("failed to get whale transactions", zap.Error(err))
+		return nil
+	}
+
+	if len(whaleTransactions) == 0 {
+		return nil // No on-chain data
+	}
+
+	// Get exchange flows
+	flows, err := am.repository.GetExchangeFlows(ctx, symbol, 24)
+	if err != nil {
+		logger.Warn("failed to get exchange flows", zap.Error(err))
+		flows = []models.ExchangeFlow{}
+	}
+
+	// Calculate net flow
+	netFlow := models.NewDecimal(0)
+	for _, flow := range flows {
+		netFlow = netFlow.Add(flow.NetFlow)
+	}
+
+	// Determine flow direction
+	flowDirection := "balanced"
+	netFlowFloat := netFlow.InexactFloat64()
+	if netFlowFloat < -1_000_000 {
+		flowDirection = "outflow" // Accumulation (bullish)
+	} else if netFlowFloat > 1_000_000 {
+		flowDirection = "inflow" // Distribution (bearish)
+	}
+
+	// Determine whale activity level
+	whaleActivity := "low"
+	highImpactCount := 0
+	for _, tx := range whaleTransactions {
+		if tx.ImpactScore >= 8 {
+			highImpactCount++
+		}
+	}
+
+	if highImpactCount >= 3 {
+		whaleActivity = "high"
+	} else if highImpactCount >= 1 || len(whaleTransactions) >= 5 {
+		whaleActivity = "medium"
+	}
+
+	summary := &models.OnChainSummary{
+		Symbol:                symbol,
+		WhaleActivity:         whaleActivity,
+		ExchangeFlowDirection: flowDirection,
+		NetExchangeFlow:       netFlow,
+		RecentWhaleMovements:  whaleTransactions,
+		UpdatedAt:             time.Now(),
+	}
+
+	logger.Debug("🐋 on-chain summary built",
+		zap.String("symbol", symbol),
+		zap.String("whale_activity", whaleActivity),
+		zap.String("flow_direction", flowDirection),
+		zap.Int("whale_count", len(whaleTransactions)),
+		zap.Float64("net_flow_usd", netFlowFloat),
+	)
+
+	return summary
 }

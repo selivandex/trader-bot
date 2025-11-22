@@ -13,6 +13,8 @@ import (
 	"github.com/alexanderselivanov/trader/internal/adapters/ai"
 	"github.com/alexanderselivanov/trader/internal/adapters/config"
 	"github.com/alexanderselivanov/trader/internal/adapters/database"
+	"github.com/alexanderselivanov/trader/internal/adapters/exchange"
+	"github.com/alexanderselivanov/trader/internal/adapters/market"
 	"github.com/alexanderselivanov/trader/internal/adapters/news"
 	"github.com/alexanderselivanov/trader/internal/adapters/onchain"
 	"github.com/alexanderselivanov/trader/internal/adapters/price"
@@ -77,6 +79,9 @@ func run(ctx context.Context) error {
 		return err
 	}
 
+	// Initialize market data repository
+	marketRepo := market.NewRepository(db.DB())
+
 	// Initialize news system
 	newsAggregator, err := initNewsSystem(ctx, cfg, db, aiProviders)
 	if err != nil {
@@ -84,10 +89,10 @@ func run(ctx context.Context) error {
 	}
 
 	// Start background workers
-	startBackgroundWorkers(ctx, cfg, db)
+	startBackgroundWorkers(ctx, cfg, db, marketRepo)
 
 	// Initialize AGENTIC AI Manager (autonomous agents only)
-	agenticManager := agents.NewAgenticManager(db.DB(), newsAggregator, aiProviders)
+	agenticManager := agents.NewAgenticManager(db.DB(), marketRepo, newsAggregator, aiProviders)
 	defer agenticManager.Shutdown()
 
 	// Initialize User Repository
@@ -302,12 +307,24 @@ func createNewsEvaluator(cfg *config.Config, aiProviders []ai.Provider) ai.NewsE
 }
 
 // startBackgroundWorkers starts all background workers
-func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *database.DB) {
+func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *database.DB, marketRepo *market.Repository) {
 	workersRepo := workers.NewRepository(db.DB())
 	newsRepo := news.NewRepository(db.DB())
 
-	// Note: Prices come from Exchange API directly (FetchTicker)
-	// No separate price worker needed for agents
+	// Candles worker - saves OHLCV for backtesting
+	// Uses MockExchange for now (replace with real exchange when available)
+	mockExchange := &exchange.MockExchange{}
+	symbols := []string{"BTC/USDT", "ETH/USDT"}
+	timeframes := []string{"1m", "5m", "15m", "1h", "4h"}
+	candlesWorker := workers.NewCandlesWorker(mockExchange, marketRepo, 1*time.Minute, symbols, timeframes)
+
+	go func() {
+		if err := candlesWorker.Start(ctx); err != nil && err != context.Canceled {
+			logger.Error("candles worker error", zap.Error(err))
+		}
+	}()
+
+	logger.Info("candles worker started (historical data collection)")
 
 	// Daily metrics worker
 	dailyMetrics := workers.NewDailyMetricsWorker(workersRepo)

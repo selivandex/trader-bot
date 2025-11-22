@@ -75,24 +75,55 @@ func buildUserPrompt(prompt *models.TradingPrompt) string {
 		sb.WriteString(fmt.Sprintf("Bid: $%.2f | Ask: $%.2f\n\n", models.ToFloat64(ticker.Bid), models.ToFloat64(ticker.Ask)))
 	}
 
+	// Multi-timeframe candles overview
+	if prompt.MarketData != nil && len(prompt.MarketData.Candles) > 0 {
+		sb.WriteString("=== MULTI-TIMEFRAME ANALYSIS ===\n\n")
+
+		for _, tf := range []string{"5m", "15m", "1h", "4h"} {
+			if candles, ok := prompt.MarketData.Candles[tf]; ok && len(candles) > 0 {
+				latest := candles[len(candles)-1]
+				prev := candles[len(candles)-2]
+
+				change := ((models.ToFloat64(latest.Close) - models.ToFloat64(prev.Close)) / models.ToFloat64(prev.Close)) * 100
+
+				trend := "↗️ Bullish"
+				if change < -0.5 {
+					trend = "↘️ Bearish"
+				} else if change > -0.5 && change < 0.5 {
+					trend = "→ Sideways"
+				}
+
+				sb.WriteString(fmt.Sprintf("%s timeframe: Close $%.2f (%+.2f%%) - %s\n",
+					tf, models.ToFloat64(latest.Close), change, trend))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
 	// Technical indicators
 	if prompt.MarketData != nil && prompt.MarketData.Indicators != nil {
 		sb.WriteString("=== TECHNICAL INDICATORS ===\n\n")
 		ind := prompt.MarketData.Indicators
 
-		if ind.RSI != nil {
-			sb.WriteString("RSI:\n")
-			for tf, val := range ind.RSI {
-				rsiVal := models.ToFloat64(val)
-				sb.WriteString(fmt.Sprintf("  %s: %.2f", tf, rsiVal))
-				if rsiVal > 70 {
-					sb.WriteString(" (Overbought)\n")
-				} else if rsiVal < 30 {
-					sb.WriteString(" (Oversold)\n")
-				} else {
-					sb.WriteString(" (Neutral)\n")
+		if len(ind.RSI) > 0 {
+			sb.WriteString("RSI (Multi-Timeframe):\n")
+			// Sort timeframes for consistent output
+			for _, tf := range []string{"5m", "15m", "1h", "4h"} {
+				if val, ok := ind.RSI[tf]; ok {
+					rsiVal := models.ToFloat64(val)
+					sb.WriteString(fmt.Sprintf("  %s: %.2f", tf, rsiVal))
+					if rsiVal > 70 {
+						sb.WriteString(" (⚠️ Overbought)\n")
+					} else if rsiVal < 30 {
+						sb.WriteString(" (✅ Oversold)\n")
+					} else if rsiVal >= 45 && rsiVal <= 55 {
+						sb.WriteString(" (➡️ Neutral zone)\n")
+					} else {
+						sb.WriteString("\n")
+					}
 				}
 			}
+			sb.WriteString("\n")
 		}
 
 		if ind.MACD != nil {
@@ -167,9 +198,10 @@ func buildUserPrompt(prompt *models.TradingPrompt) string {
 		sb.WriteString(fmt.Sprintf("Exchange Flow: %s (%.2f BTC net)\n",
 			strings.ToUpper(onchain.ExchangeFlowDirection), netFlow))
 
-		if onchain.ExchangeFlowDirection == "inflow" {
+		switch onchain.ExchangeFlowDirection {
+		case "inflow":
 			sb.WriteString("⚠️ Large inflow to exchanges = potential selling pressure\n")
-		} else if onchain.ExchangeFlowDirection == "outflow" {
+		case "outflow":
 			sb.WriteString("📈 Outflow from exchanges = accumulation (bullish)\n")
 		}
 
@@ -182,9 +214,10 @@ func buildUserPrompt(prompt *models.TradingPrompt) string {
 				if whale.ImpactScore >= 7 && count < 3 {
 					amountUSD, _ := whale.AmountUSD.Float64()
 					emoji := "⚠️"
-					if whale.TransactionType == "exchange_outflow" {
+					switch whale.TransactionType {
+					case "exchange_outflow":
 						emoji = "📈"
-					} else if whale.TransactionType == "exchange_inflow" {
+					case "exchange_inflow":
 						emoji = "📉"
 					}
 
