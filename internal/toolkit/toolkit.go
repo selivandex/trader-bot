@@ -185,6 +185,12 @@ type AgentToolkit interface {
 	// AnalyzeLiquidity calculates liquidity score
 	AnalyzeLiquidity(ctx context.Context, symbol string) (float64, error) // 0-100
 
+	// GetBTCCorrelation gets correlation coefficient for symbol vs BTC
+	GetBTCCorrelation(ctx context.Context, symbol string, period string) (*models.CorrelationResult, error)
+
+	// GetGlobalMarketRegime gets current global market regime (risk-on/risk-off/neutral)
+	GetGlobalMarketRegime(ctx context.Context) (*models.MarketRegimeResult, error)
+
 	// ============ Backtesting Tools ============
 
 	// BacktestStrategy simulates strategy on historical data

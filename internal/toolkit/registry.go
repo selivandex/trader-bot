@@ -271,6 +271,19 @@ func (r *ToolRegistry) registerTools() {
 		ReturnType:  "[]SemanticMemory",
 	}, r.wrapSearchPersonalMemories)
 
+	// Correlation tools
+	r.register("GetBTCCorrelation", ToolMetadata{
+		Description: "Get correlation coefficient between symbol and BTC",
+		ParamTypes:  map[string]string{"symbol": "string", "period": "string"},
+		ReturnType:  "CorrelationResult",
+	}, r.wrapGetBTCCorrelation)
+
+	r.register("GetGlobalMarketRegime", ToolMetadata{
+		Description: "Get current global market regime (risk-on/risk-off/neutral)",
+		ParamTypes:  map[string]string{},
+		ReturnType:  "MarketRegimeResult",
+	}, r.wrapGetGlobalMarketRegime)
+
 	logger.Info("tool registry initialized",
 		zap.Int("tools_registered", len(r.tools)),
 	)
@@ -570,4 +583,21 @@ func getFloat(params map[string]interface{}, key string) (float64, error) {
 	default:
 		return 0, fmt.Errorf("parameter %s must be number, got %T", key, val)
 	}
+}
+
+func (r *ToolRegistry) wrapGetBTCCorrelation(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	symbol, err := getString(params, "symbol")
+	if err != nil {
+		return nil, err
+	}
+	period, err := getString(params, "period")
+	if err != nil {
+		return nil, err
+	}
+
+	return r.toolkit.GetBTCCorrelation(ctx, symbol, period)
+}
+
+func (r *ToolRegistry) wrapGetGlobalMarketRegime(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return r.toolkit.GetGlobalMarketRegime(ctx)
 }
