@@ -18,6 +18,7 @@
 ```
 
 **Example:**
+
 ```
 User: /report agent-123
 
@@ -64,6 +65,7 @@ Win Rate: 66.7% (2W/1L)
 ```
 
 **Example:**
+
 ```
 User: /report agent-123 week
 
@@ -91,6 +93,7 @@ Sharpe: 1.85
 ```
 
 **Date Formats:**
+
 - `YYYY-MM-DD` - полная дата
 - `today`, `yesterday` - ключевые слова
 - `7d`, `30d` - N дней назад
@@ -98,6 +101,7 @@ Sharpe: 1.85
 - `this_month`, `last_month`
 
 **Examples:**
+
 ```bash
 # Последние 7 дней
 /report agent-123 custom 7d today
@@ -123,6 +127,7 @@ Sharpe: 1.85
 ```
 
 **Example:**
+
 ```
 User: /report compare agent-123 agent-456 week
 
@@ -151,6 +156,7 @@ Aggressive Alpha:
 ```
 
 **Includes:**
+
 - Win rate by signal type
 - Best/worst trades
 - Average hold time
@@ -168,21 +174,21 @@ Aggressive Alpha:
 func (bot *AgentBot) handleReportCommand(update tgbotapi.Update) error {
     ctx := context.Background()
     userID := fmt.Sprintf("%d", update.Message.From.ID)
-    
+
     // Parse command: /report [AGENT_ID] [period] [start] [end]
     args := parseArgs(update.Message.Text)
-    
+
     // Get user's agents
     agents, err := bot.agentRepo.GetUserAgents(ctx, userID)
     if err != nil || len(agents) == 0 {
         bot.reply(update, "You have no active agents")
         return nil
     }
-    
+
     // Determine agent
     var agentID string
     var period string = "yesterday" // default
-    
+
     if len(args) == 0 {
         // /report → use first agent, yesterday
         agentID = agents[0].ID
@@ -196,7 +202,7 @@ func (bot *AgentBot) handleReportCommand(update tgbotapi.Update) error {
         agentID = agents[0].ID
         period = args[0]
     }
-    
+
     // Find agent
     var agent *models.AgentConfig
     for _, a := range agents {
@@ -205,55 +211,55 @@ func (bot *AgentBot) handleReportCommand(update tgbotapi.Update) error {
             break
         }
     }
-    
+
     if agent == nil {
         bot.reply(update, "Agent not found")
         return nil
     }
-    
+
     // Generate report based on period
     generator := reports.NewGenerator(bot.agentRepoAdapter, bot.templates)
-    
+
     var reportText string
-    
+
     switch period {
     case "today":
         reportText, err = bot.generateDailyReport(ctx, generator, agentID, agent.Symbol, time.Now())
-        
+
     case "yesterday":
         reportText, err = bot.generateDailyReport(ctx, generator, agentID, agent.Symbol, time.Now().AddDate(0, 0, -1))
-        
+
     case "week":
         reportText, err = bot.generateWeeklyReport(ctx, generator, agentID, agent.Symbol)
-        
+
     case "custom":
         // Parse dates from args
         if len(args) < 3 {
             bot.reply(update, "Usage: /report custom START_DATE END_DATE")
             return nil
         }
-        
+
         start, end, err := parseDateRange(args[1], args[2])
         if err != nil {
             bot.reply(update, "Invalid date format. Use YYYY-MM-DD or 7d, 30d, etc")
             return nil
         }
-        
+
         reportText, err = bot.generateCustomReport(ctx, generator, agentID, agent.Symbol, start, end)
-        
+
     default:
         bot.reply(update, "Unknown period. Use: today, yesterday, week, or custom")
         return nil
     }
-    
+
     if err != nil {
         bot.reply(update, fmt.Sprintf("Error generating report: %v", err))
         return err
     }
-    
+
     // Send report
     bot.sendFormattedMessage(update.Message.Chat.ID, reportText)
-    
+
     return nil
 }
 
@@ -290,19 +296,19 @@ func parseDateRange(startStr, endStr string) (time.Time, time.Time, error) {
     if err != nil {
         return time.Time{}, time.Time{}, fmt.Errorf("invalid start date: %w", err)
     }
-    
+
     end, err := parseDate(endStr)
     if err != nil {
         return time.Time{}, time.Time{}, fmt.Errorf("invalid end date: %w", err)
     }
-    
+
     return start, end, nil
 }
 
 // parseDate parses various date formats
 func parseDate(s string) (time.Time, error) {
     now := time.Now()
-    
+
     switch s {
     case "today":
         return now, nil
@@ -317,7 +323,7 @@ func parseDate(s string) (time.Time, error) {
     case "last_month":
         return time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location()), nil
     }
-    
+
     // Try relative days: "7d", "30d"
     if len(s) > 1 && s[len(s)-1] == 'd' {
         days := 0
@@ -325,26 +331,26 @@ func parseDate(s string) (time.Time, error) {
             return now.AddDate(0, 0, -days), nil
         }
     }
-    
+
     // Try YYYY-MM-DD format
     t, err := time.Parse("2006-01-02", s)
     if err == nil {
         return t, nil
     }
-    
+
     // Try other common formats
     formats := []string{
         "2006-01-02 15:04:05",
         "02/01/2006",
         "02-01-2006",
     }
-    
+
     for _, format := range formats {
         if t, err := time.Parse(format, s); err == nil {
             return t, nil
         }
     }
-    
+
     return time.Time{}, fmt.Errorf("unrecognized date format: %s", s)
 }
 
@@ -369,7 +375,7 @@ func isAgentID(s string) bool {
 
 ```
 /report                              → Yesterday, first agent
-/report today                        → Today, first agent  
+/report today                        → Today, first agent
 /report agent-123                    → Yesterday, specific agent
 /report agent-123 today              → Today, specific agent
 /report agent-123 week               → Weekly, specific agent
@@ -406,6 +412,7 @@ func isAgentID(s string) bool {
 ## Response Format
 
 Bot always responds with formatted report using templates:
+
 - Markdown formatting
 - Emojis for clarity
 - Sections separated by lines
@@ -432,4 +439,3 @@ Generation failed:  "Error generating report: [details]"
 ---
 
 **All reports use the same `internal/reports` package - DRY principle!**
-
