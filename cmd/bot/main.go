@@ -29,6 +29,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/workers"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/templates"
 )
 
 func main() {
@@ -91,8 +92,19 @@ func run(ctx context.Context) error {
 	// Initialize repositories
 	repos := initRepositories(db)
 
-	// Initialize Telegram system (templates and notifier)
-	templateManager, notifier := initTelegramSystem(cfg, repos.userRepo)
+	// Load ALL templates from ./templates/ directory (basic, agentic, validators, telegram)
+	allTemplates, err := templates.NewManager("./templates")
+	if err != nil {
+		logger.Fatal("failed to load templates - cannot start", zap.Error(err))
+		panic(fmt.Sprintf("templates not loaded: %v", err))
+	}
+	logger.Info("✅ All templates loaded", zap.Int("count", len(allTemplates.GetDirectory())))
+
+	// Set global template renderer for AI prompts
+	ai.SetTemplateRenderer(allTemplates)
+
+	// Initialize Telegram notifier (uses same templates)
+	notifier := initTelegramSystem(cfg, repos.userRepo, allTemplates)
 
 	// Initialize and start agent system
 	agenticManager := initAgenticSystem(ctx, cfg, db, redisClient, marketRepo, newsAggregator, aiProviders, notifier)
@@ -101,7 +113,7 @@ func run(ctx context.Context) error {
 	healthServer := startHealthServer(cfg, db, redisClient, agenticManager, len(aiProviders))
 
 	// Start Telegram bot for management
-	startTelegramBot(ctx, cfg, agenticManager, repos.userRepo, repos.agentRepo, repos.adminRepo, templateManager)
+	startTelegramBot(ctx, cfg, agenticManager, repos.userRepo, repos.agentRepo, repos.adminRepo, allTemplates)
 
 	// Wait for shutdown signal
 	<-ctx.Done()
@@ -156,26 +168,20 @@ func initRepositories(db *database.DB) *repositorySet {
 	}
 }
 
-// initTelegramSystem initializes Telegram templates and notifier
-func initTelegramSystem(cfg *config.Config, userRepo *users.AgentsRepository) (*telegram.TemplateManager, agents.Notifier) {
+// initTelegramSystem initializes Telegram notifier
+func initTelegramSystem(cfg *config.Config, userRepo *users.AgentsRepository, templateRenderer templates.Renderer) agents.Notifier {
 	if cfg.Telegram.BotToken == "" {
-		return nil, nil
+		return nil
 	}
 
-	templateManager, err := telegram.NewTemplateManager("./templates/telegram")
-	if err != nil {
-		logger.Warn("failed to load telegram templates", zap.Error(err))
-		return nil, nil
-	}
-
-	notifier, err := telegram.NewNotifier(cfg.Telegram.BotToken, userRepo, &cfg.Telegram, templateManager)
+	notifier, err := telegram.NewNotifier(cfg.Telegram.BotToken, userRepo, &cfg.Telegram, templateRenderer)
 	if err != nil {
 		logger.Warn("failed to initialize telegram notifier", zap.Error(err))
-		return templateManager, nil
+		return nil
 	}
 
 	logger.Info("📱 Telegram notifier initialized")
-	return templateManager, notifier
+	return notifier
 }
 
 // initAgenticSystem initializes agent manager and recovers running agents
@@ -527,13 +533,13 @@ func startHealthServer(cfg *config.Config, db *database.DB, redisClient *redisAd
 }
 
 // startTelegramBot initializes and starts Telegram bot for agent management
-func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository, adminRepo *users.AdminRepository, templateManager *telegram.TemplateManager) {
+func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository, adminRepo *users.AdminRepository, templateRenderer templates.Renderer) {
 	if cfg.Telegram.BotToken == "" {
 		logger.Info("telegram bot disabled (no token provided)")
 		return
 	}
 
-	agentBot, err := telegram.NewAgentBot(cfg, agenticManager, userRepo, agentRepo, adminRepo, templateManager)
+	agentBot, err := telegram.NewAgentBot(cfg, agenticManager, userRepo, agentRepo, adminRepo, templateRenderer)
 	if err != nil {
 		logger.Error("failed to create telegram bot", zap.Error(err))
 		return

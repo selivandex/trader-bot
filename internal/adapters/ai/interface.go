@@ -15,8 +15,11 @@ type Provider interface {
 	// Analyze analyzes trading prompt and returns decision
 	Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error)
 	
-	// EvaluateNews evaluates news item and updates its sentiment/impact scores
+	// EvaluateNews evaluates news item and updates its sentiment/impact scores (DEPRECATED: use EvaluateNewsBatch)
 	EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error
+	
+	// EvaluateNewsBatch evaluates multiple news items in single API call (more efficient)
+	EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error
 	
 	// GetName returns provider name
 	GetName() string

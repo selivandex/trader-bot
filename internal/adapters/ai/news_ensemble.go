@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"go.uber.org/zap"
@@ -139,6 +140,87 @@ func (nee *NewsEvaluatorEnsemble) EvaluateNews(ctx context.Context, newsItem *mo
 	return nil
 }
 
+// EvaluateNewsBatch evaluates multiple news items using ensemble (all providers in parallel)
+func (nee *NewsEvaluatorEnsemble) EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error {
+	if !nee.enabled || len(newsItems) == 0 {
+		return nil
+	}
+
+	// For ensemble, query all providers in parallel with batch evaluation
+	type batchResult struct {
+		provider string
+		err      error
+	}
+
+	enabledCount := 0
+	for _, p := range nee.providers {
+		if p.IsEnabled() {
+			enabledCount++
+		}
+	}
+
+	results := make(chan batchResult, enabledCount)
+
+	// Each provider evaluates the batch
+	for _, provider := range nee.providers {
+		if !provider.IsEnabled() {
+			continue
+		}
+
+		go func(p Provider) {
+			// Create copies of news items for this provider
+			itemCopies := make([]*models.NewsItem, len(newsItems))
+			for i, item := range newsItems {
+				copy := *item
+				itemCopies[i] = &copy
+			}
+
+			err := p.EvaluateNewsBatch(ctx, itemCopies)
+
+			results <- batchResult{
+				provider: p.GetName(),
+				err:      err,
+			}
+
+			// Copy evaluations back to original items if successful
+			if err == nil {
+				for i := range newsItems {
+					newsItems[i].Sentiment = itemCopies[i].Sentiment
+					newsItems[i].Impact = itemCopies[i].Impact
+					newsItems[i].Urgency = itemCopies[i].Urgency
+				}
+			}
+		}(provider)
+	}
+
+	// Wait for all providers
+	successCount := 0
+	for i := 0; i < enabledCount; i++ {
+		res := <-results
+		if res.err != nil {
+			logger.Warn("batch news evaluation failed for provider",
+				zap.String("provider", res.provider),
+				zap.Error(res.err),
+			)
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount == 0 {
+		logger.Warn("all providers failed batch evaluation")
+		return fmt.Errorf("all providers failed")
+	}
+
+	logger.Info("ensemble batch evaluation complete",
+		zap.Int("news_count", len(newsItems)),
+		zap.Int("providers_succeeded", successCount),
+		zap.Int("providers_total", enabledCount),
+	)
+
+	return nil
+}
+
 // GetProviderNames returns names of all enabled providers
 func (nee *NewsEvaluatorEnsemble) GetProviderNames() []string {
 	names := make([]string, 0)
@@ -216,4 +298,3 @@ func calculateModeUrgency(urgencies []string) string {
 
 	return mode
 }
-

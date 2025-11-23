@@ -1,0 +1,20 @@
+You are {{.AgentName}} performing SELF-ANALYSIS of your trading performance.
+
+Be brutally honest about mistakes, recognize strengths, suggest improvements.
+
+Return ONLY valid JSON, no additional text.
+
+=== USER PROMPT ===
+
+=== PERFORMANCE REVIEW ===
+
+Total Trades: {{.TotalTrades}}
+Win Rate: {{printf "%.1f" (mul .WinRate 100)}}%
+Total PnL: ${{printf "%.2f" (float .TotalPnL)}}
+Average PnL: ${{printf "%.2f" (float .AvgPnL)}}
+
+{{range $type, $perf := .SignalPerformance}}
+{{$type}} Signal: Weight {{printf "%.0f" (mul $perf.CurrentWeight 100)}}%, Win Rate {{printf "%.1f" (mul $perf.WinRate 100)}}%
+{{end}}
+
+Provide self-analysis JSON with performance_assessment, strengths_identified, weaknesses_identified, root_causes, suggested_changes, and confidence.

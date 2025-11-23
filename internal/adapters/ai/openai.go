@@ -53,8 +53,7 @@ func (o *OpenAIProvider) IsEnabled() bool {
 }
 
 func (o *OpenAIProvider) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error) {
-	systemPrompt := buildSystemPrompt(o.strategyParams)
-	userPrompt := buildUserPrompt(prompt)
+	systemPrompt, userPrompt := buildPromptsFromTemplate(prompt, o.strategyParams)
 
 	reqBody := map[string]interface{}{
 		"model": "gpt-4-turbo-preview",
@@ -126,8 +125,7 @@ func (o *OpenAIProvider) Analyze(ctx context.Context, prompt *models.TradingProm
 }
 
 func (o *OpenAIProvider) EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error {
-	systemPrompt := buildNewsEvaluationSystemPrompt()
-	userPrompt := buildNewsEvaluationUserPrompt(newsItem)
+	systemPrompt, userPrompt := buildNewsPromptsFromTemplate(newsItem)
 
 	reqBody := map[string]interface{}{
 		"model": "gpt-4-turbo-preview",
@@ -204,6 +202,30 @@ func (o *OpenAIProvider) EvaluateNews(ctx context.Context, newsItem *models.News
 		zap.String("provider", "openai"),
 		zap.Duration("latency", latency),
 	)
+
+	return nil
+}
+
+// EvaluateNewsBatch evaluates multiple news items in single API call (more efficient)
+func (o *OpenAIProvider) EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error {
+	if !o.enabled || len(newsItems) == 0 {
+		return nil
+	}
+
+	systemPrompt, userPrompt := buildNewsBatchPromptsFromTemplate(newsItems)
+	responseText, err := o.callOpenAIAPI(ctx, systemPrompt, userPrompt, 2000)
+	if err != nil {
+		return fmt.Errorf("OpenAI API call failed: %w", err)
+	}
+
+	// Parse and apply evaluations (common logic)
+	if err := parseAndApplyNewsBatchEvaluations(responseText, newsItems, "GPT"); err != nil {
+		// Fallback to single item evaluation
+		logger.Warn("batch parsing failed, falling back to single evaluations", zap.Error(err))
+		for _, item := range newsItems {
+			_ = o.EvaluateNews(ctx, item)
+		}
+	}
 
 	return nil
 }
@@ -307,6 +329,34 @@ func (o *OpenAIProvider) SummarizeMemory(ctx context.Context, experience *models
 		return nil, fmt.Errorf("failed to parse memory summary: %w", err)
 	}
 	return &summary, nil
+}
+
+// ValidateDecision validates trading decision from validator perspective
+func (o *OpenAIProvider) ValidateDecision(ctx context.Context, request *models.ValidationRequest) (*models.ValidationResponse, error) {
+	if !o.enabled {
+		return nil, fmt.Errorf("OpenAI provider is not enabled")
+	}
+
+	// Use pre-built prompts from request (built by ValidatorCouncil from templates)
+	systemPrompt := request.SystemPrompt
+	userPrompt := request.UserPrompt
+
+	responseText, err := o.callOpenAIAPI(ctx, systemPrompt, userPrompt, 1500)
+	if err != nil {
+		return nil, err
+	}
+
+	var response models.ValidationResponse
+	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
+		// Fallback: return basic response with reasoning as text
+		return &models.ValidationResponse{
+			Verdict:    "ABSTAIN",
+			Confidence: 50,
+			Reasoning:  responseText,
+			KeyRisks:   []string{"Failed to parse structured response"},
+		}, nil
+	}
+	return &response, nil
 }
 
 func (o *OpenAIProvider) callOpenAIAPI(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {

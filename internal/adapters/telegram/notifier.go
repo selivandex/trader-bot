@@ -10,6 +10,7 @@ import (
 
 	"github.com/selivandex/trader-bot/internal/adapters/config"
 	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/templates"
 )
 
 // UserRepository interface for getting telegram IDs
@@ -22,11 +23,11 @@ type Notifier struct {
 	api             *tgbotapi.BotAPI
 	userRepo        UserRepository
 	cfg             *config.TelegramConfig
-	templateManager *TemplateManager
+	templateManager templates.Renderer
 }
 
 // NewNotifier creates new Telegram notifier
-func NewNotifier(botToken string, userRepo UserRepository, cfg *config.TelegramConfig, templateManager *TemplateManager) (*Notifier, error) {
+func NewNotifier(botToken string, userRepo UserRepository, cfg *config.TelegramConfig, templateRenderer templates.Renderer) (*Notifier, error) {
 	if botToken == "" {
 		return nil, fmt.Errorf("telegram bot token is required")
 	}
@@ -46,7 +47,7 @@ func NewNotifier(botToken string, userRepo UserRepository, cfg *config.TelegramC
 		api:             bot,
 		userRepo:        userRepo,
 		cfg:             cfg,
-		templateManager: templateManager,
+		templateManager: templateRenderer,
 	}, nil
 }
 

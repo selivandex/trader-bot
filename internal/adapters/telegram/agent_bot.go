@@ -17,6 +17,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/users"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/templates"
 )
 
 // AgentBot handles Telegram commands for AI agents
@@ -27,11 +28,11 @@ type AgentBot struct {
 	userRepo        *users.AgentsRepository
 	agentRepo       *agents.Repository
 	adminRepo       *users.AdminRepository
-	templateManager *TemplateManager
+	templateManager templates.Renderer
 }
 
 // NewAgentBot creates new Telegram bot for agents
-func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository, adminRepo *users.AdminRepository, templateManager *TemplateManager) (*AgentBot, error) {
+func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, userRepo *users.AgentsRepository, agentRepo *agents.Repository, adminRepo *users.AdminRepository, templateRenderer templates.Renderer) (*AgentBot, error) {
 	bot, err := tgbotapi.NewBotAPI(cfg.Telegram.BotToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
@@ -51,7 +52,7 @@ func NewAgentBot(cfg *config.Config, agenticManager *agents.AgenticManager, user
 		userRepo:        userRepo,
 		agentRepo:       agentRepo,
 		adminRepo:       adminRepo,
-		templateManager: templateManager,
+		templateManager: templateRenderer,
 	}, nil
 }
 

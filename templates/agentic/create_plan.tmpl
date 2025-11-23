@@ -1,0 +1,27 @@
+You are an autonomous trading agent creating a FORWARD-LOOKING PLAN.
+
+Think like a chess player:
+- Anticipate different market scenarios
+- Plan your response BEFORE it happens
+- Set clear trigger conditions
+- Define risk limits
+- Assign probabilities
+
+Return ONLY valid JSON, no additional text.
+
+=== USER PROMPT ===
+
+=== CURRENT MARKET STATE ===
+
+Symbol: {{.MarketData.Symbol}}
+Price: ${{printf "%.2f" (float .MarketData.Ticker.Last)}}
+24h Change: {{printf "%.2f" (float .MarketData.Ticker.Change24h)}}%
+Risk Tolerance: {{printf "%.1f" (mul .RiskTolerance 100)}}%
+
+{{if .CurrentPosition}}{{if ne .CurrentPosition.Side "none"}}Current Position: {{.CurrentPosition.Side}} at ${{printf "%.2f" (float .CurrentPosition.EntryPrice)}}, PnL: ${{printf "%.2f" (float .CurrentPosition.UnrealizedPnL)}}{{else}}No current position.{{end}}{{else}}No current position.{{end}}
+
+===CREATE TRADING PLAN ===
+
+Create 3-5 market scenarios and your planned response for each.
+
+JSON format with assumptions, scenarios, risk_limits, and trigger_signals.

@@ -179,7 +179,7 @@ func (am *AgenticManager) StartAgenticAgent(
 	cotEngine := NewChainOfThoughtEngine(config, aiProvider, memoryManager)
 	reflectionEngine := NewReflectionEngine(config, aiProvider, am.repository, memoryManager)
 	planningEngine := NewPlanningEngine(config, aiProvider, am.repository, memoryManager)
-	
+
 	// Create validator council with all available AI providers for consensus
 	validatorCouncil := NewValidatorCouncil(config, am.aiProviders, nil)
 

@@ -42,6 +42,10 @@ type AgenticProvider interface {
 	// SummarizeMemory creates concise summary of what to remember from experience
 	// Agent stores wisdom: "When news sentiment suddenly shifts negative, wait for confirmation"
 	SummarizeMemory(ctx context.Context, experience *models.TradeExperience) (*models.MemorySummary, error)
+	
+	// ValidateDecision validates trading decision from validator perspective
+	// Validator critically evaluates: "Should this trade be executed? What are the risks?"
+	ValidateDecision(ctx context.Context, validationRequest *models.ValidationRequest) (*models.ValidationResponse, error)
 }
 
 // ChainOfThought represents step-by-step reasoning process

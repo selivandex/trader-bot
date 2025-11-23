@@ -262,3 +262,37 @@ type MemoryConfirmation struct {
 	PnLSum             decimal.Decimal `json:"pnl_sum" db:"pnl_sum"`
 	ConfirmedAt        time.Time       `json:"confirmed_at" db:"confirmed_at"`
 }
+
+// ========== Validator Council Models ==========
+
+// ValidationRequest contains all data for validator to review agent's decision
+type ValidationRequest struct {
+	ValidatorRole     string               `json:"validator_role"` // "risk_manager", "technical_expert", "market_psychologist"
+	SystemPrompt      string               `json:"system_prompt"`  // Pre-built system prompt
+	UserPrompt        string               `json:"user_prompt"`    // Pre-built user prompt
+	AgentDecision     *AgentDecision       `json:"agent_decision"`
+	AgentProfile      *AgentConfig         `json:"agent_profile"`
+	MarketData        *MarketData          `json:"market_data"`
+	CurrentPosition   *Position            `json:"current_position,omitempty"`
+	RecentPerformance *PerformanceSnapshot `json:"recent_performance,omitempty"`
+}
+
+// ValidationResponse is validator's verdict on the decision
+type ValidationResponse struct {
+	Verdict            string   `json:"verdict"`    // "APPROVE", "REJECT", "ABSTAIN"
+	Confidence         int      `json:"confidence"` // 0-100
+	Reasoning          string   `json:"reasoning"`
+	KeyRisks           []string `json:"key_risks"`
+	KeyOpportunities   []string `json:"key_opportunities,omitempty"`
+	RecommendedChanges string   `json:"recommended_changes,omitempty"` // If rejected, what to change
+	CriticalConcerns   string   `json:"critical_concerns,omitempty"`   // Red flags
+}
+
+// PerformanceSnapshot contains recent agent performance for validator context
+type PerformanceSnapshot struct {
+	Last24hPnL        decimal.Decimal `json:"last_24h_pnl"`
+	Last7DaysPnL      decimal.Decimal `json:"last_7days_pnl"`
+	RecentWinRate     float64         `json:"recent_win_rate"` // Last 10 trades
+	CurrentDrawdown   float64         `json:"current_drawdown"`
+	ConsecutiveLosses int             `json:"consecutive_losses"`
+}

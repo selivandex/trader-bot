@@ -53,8 +53,7 @@ func (c *ClaudeProvider) IsEnabled() bool {
 }
 
 func (c *ClaudeProvider) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error) {
-	systemPrompt := buildSystemPrompt(c.strategyParams)
-	userPrompt := buildUserPrompt(prompt)
+	systemPrompt, userPrompt := buildPromptsFromTemplate(prompt, c.strategyParams)
 
 	reqBody := map[string]interface{}{
 		"model":      "claude-3-5-sonnet-20241022",
@@ -125,8 +124,7 @@ func (c *ClaudeProvider) Analyze(ctx context.Context, prompt *models.TradingProm
 
 // EvaluateNews evaluates news item using Claude AI
 func (c *ClaudeProvider) EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error {
-	systemPrompt := buildNewsEvaluationSystemPrompt()
-	userPrompt := buildNewsEvaluationUserPrompt(newsItem)
+	systemPrompt, userPrompt := buildNewsPromptsFromTemplate(newsItem)
 
 	reqBody := map[string]interface{}{
 		"model":      "claude-3-5-sonnet-20241022",
@@ -200,6 +198,30 @@ func (c *ClaudeProvider) EvaluateNews(ctx context.Context, newsItem *models.News
 		zap.Int("impact", evaluation.Impact),
 		zap.String("urgency", evaluation.Urgency),
 	)
+
+	return nil
+}
+
+// EvaluateNewsBatch evaluates multiple news items in single API call (more efficient)
+func (c *ClaudeProvider) EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error {
+	if !c.enabled || len(newsItems) == 0 {
+		return nil
+	}
+
+	systemPrompt, userPrompt := buildNewsBatchPromptsFromTemplate(newsItems)
+	responseText, err := c.callClaudeAPI(ctx, systemPrompt, userPrompt, 2000)
+	if err != nil {
+		return fmt.Errorf("Claude API call failed: %w", err)
+	}
+
+	// Parse and apply evaluations (common logic)
+	if err := parseAndApplyNewsBatchEvaluations(responseText, newsItems, "Claude"); err != nil {
+		// Fallback to single item evaluation
+		logger.Warn("batch parsing failed, falling back to single evaluations", zap.Error(err))
+		for _, item := range newsItems {
+			_ = c.EvaluateNews(ctx, item)
+		}
+	}
 
 	return nil
 }
@@ -318,6 +340,38 @@ func (c *ClaudeProvider) SummarizeMemory(ctx context.Context, experience *models
 		return nil, fmt.Errorf("failed to parse memory summary: %w", err)
 	}
 	return &summary, nil
+}
+
+// ValidateDecision validates trading decision from validator perspective
+func (c *ClaudeProvider) ValidateDecision(ctx context.Context, request *models.ValidationRequest) (*models.ValidationResponse, error) {
+	if !c.enabled {
+		return nil, fmt.Errorf("Claude provider is not enabled")
+	}
+
+	// Use pre-built prompts from request (built by ValidatorCouncil from templates)
+	systemPrompt := request.SystemPrompt
+	userPrompt := request.UserPrompt
+
+	responseText, err := c.callClaudeAPI(ctx, systemPrompt, userPrompt, 1500)
+	if err != nil {
+		return nil, err
+	}
+
+	var response models.ValidationResponse
+	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
+		logger.Warn("failed to parse validation response as JSON, using text",
+			zap.Error(err),
+			zap.String("response", responseText),
+		)
+		// Fallback: return basic response with reasoning as text
+		return &models.ValidationResponse{
+			Verdict:    "ABSTAIN",
+			Confidence: 50,
+			Reasoning:  responseText,
+			KeyRisks:   []string{"Failed to parse structured response"},
+		}, nil
+	}
+	return &response, nil
 }
 
 // callClaudeAPI helper method for agentic calls

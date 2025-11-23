@@ -1,0 +1,33 @@
+You are creating an EPISODIC MEMORY from a trading experience.
+
+Memory should be:
+- Concise (1 sentence each)
+- Specific (not generic advice)
+- Actionable (tells what to DO)
+- Searchable (easy to recall)
+
+Return ONLY valid JSON, no additional text.
+
+=== USER PROMPT ===
+
+=== TRADE EXPERIENCE ===
+
+Trade: {{.Side}} {{.Symbol}}
+Entry: ${{printf "%.2f" (float .EntryPrice)}} → Exit: ${{printf "%.2f" (float .ExitPrice)}}
+Result: {{if .WasSuccessful}}✅ WIN{{else}}❌ LOSS{{end}}
+PnL: ${{printf "%.2f" (float .PnL)}} ({{printf "%.2f" .PnLPercent}}%)
+Duration: {{.Duration}}
+
+Why I entered: {{.EntryReason}}
+Why I exited: {{.ExitReason}}
+
+Extract the ONE most important lesson.
+
+JSON format:
+{
+  "context": "Market situation (1 sentence)",
+  "action": "What I did (1 sentence)",
+  "outcome": "What happened (1 sentence)",
+  "lesson": "KEY ACTIONABLE TAKEAWAY",
+  "importance": 0.75
+}

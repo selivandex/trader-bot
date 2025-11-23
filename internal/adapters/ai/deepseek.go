@@ -53,8 +53,7 @@ func (d *DeepSeekProvider) IsEnabled() bool {
 }
 
 func (d *DeepSeekProvider) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error) {
-	systemPrompt := buildSystemPrompt(d.strategyParams)
-	userPrompt := buildUserPrompt(prompt)
+	systemPrompt, userPrompt := buildPromptsFromTemplate(prompt, d.strategyParams)
 
 	reqBody := map[string]interface{}{
 		"model": "deepseek-chat",
@@ -127,8 +126,7 @@ func (d *DeepSeekProvider) Analyze(ctx context.Context, prompt *models.TradingPr
 
 // EvaluateNews evaluates news item using DeepSeek AI
 func (d *DeepSeekProvider) EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error {
-	systemPrompt := buildNewsEvaluationSystemPrompt()
-	userPrompt := buildNewsEvaluationUserPrompt(newsItem)
+	systemPrompt, userPrompt := buildNewsPromptsFromTemplate(newsItem)
 
 	reqBody := map[string]interface{}{
 		"model": "deepseek-chat",
@@ -203,6 +201,30 @@ func (d *DeepSeekProvider) EvaluateNews(ctx context.Context, newsItem *models.Ne
 		zap.Int("impact", evaluation.Impact),
 		zap.String("urgency", evaluation.Urgency),
 	)
+
+	return nil
+}
+
+// EvaluateNewsBatch evaluates multiple news items in single API call (more efficient)
+func (d *DeepSeekProvider) EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error {
+	if !d.enabled || len(newsItems) == 0 {
+		return nil
+	}
+
+	systemPrompt, userPrompt := buildNewsBatchPromptsFromTemplate(newsItems)
+	responseText, err := d.callDeepSeekAPI(ctx, systemPrompt, userPrompt, 2000)
+	if err != nil {
+		return fmt.Errorf("DeepSeek API call failed: %w", err)
+	}
+
+	// Parse and apply evaluations (common logic)
+	if err := parseAndApplyNewsBatchEvaluations(responseText, newsItems, "DeepSeek"); err != nil {
+		// Fallback to single item evaluation
+		logger.Warn("batch parsing failed, falling back to single evaluations", zap.Error(err))
+		for _, item := range newsItems {
+			_ = d.EvaluateNews(ctx, item)
+		}
+	}
 
 	return nil
 }
@@ -306,6 +328,34 @@ func (d *DeepSeekProvider) SummarizeMemory(ctx context.Context, experience *mode
 		return nil, fmt.Errorf("failed to parse memory summary: %w", err)
 	}
 	return &summary, nil
+}
+
+// ValidateDecision validates trading decision from validator perspective
+func (d *DeepSeekProvider) ValidateDecision(ctx context.Context, request *models.ValidationRequest) (*models.ValidationResponse, error) {
+	if !d.enabled {
+		return nil, fmt.Errorf("DeepSeek provider is not enabled")
+	}
+
+	// Use pre-built prompts from request (built by ValidatorCouncil from templates)
+	systemPrompt := request.SystemPrompt
+	userPrompt := request.UserPrompt
+
+	responseText, err := d.callDeepSeekAPI(ctx, systemPrompt, userPrompt, 1500)
+	if err != nil {
+		return nil, err
+	}
+
+	var response models.ValidationResponse
+	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
+		// Fallback: return basic response with reasoning as text
+		return &models.ValidationResponse{
+			Verdict:    "ABSTAIN",
+			Confidence: 50,
+			Reasoning:  responseText,
+			KeyRisks:   []string{"Failed to parse structured response"},
+		}, nil
+	}
+	return &response, nil
 }
 
 func (d *DeepSeekProvider) callDeepSeekAPI(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {

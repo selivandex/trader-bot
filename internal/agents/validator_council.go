@@ -10,6 +10,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/templates"
 )
 
 // ValidatorVerdict represents validator's vote
@@ -71,9 +72,10 @@ type ConsensusResult struct {
 
 // ValidatorCouncil manages multiple AI validators for consensus decision-making
 type ValidatorCouncil struct {
-	config      *ValidatorConfig
-	validators  []ValidatorSetup
-	agentConfig *models.AgentConfig
+	config          *ValidatorConfig
+	validators      []ValidatorSetup
+	agentConfig     *models.AgentConfig
+	templateManager *templates.Manager
 }
 
 // NewValidatorCouncil creates new validator council
@@ -126,16 +128,32 @@ func NewValidatorCouncil(
 		})
 	}
 
+	// Load validator prompt templates
+	templateManager, err := templates.NewManagerWithValidation(
+		"./templates/validators",
+		[]string{
+			"risk_manager.tmpl",
+			"technical_expert.tmpl",
+			"market_psychologist.tmpl",
+		},
+	)
+	if err != nil {
+		logger.Warn("failed to load validator templates, will use fallback prompts", zap.Error(err))
+		templateManager = nil
+	}
+
 	logger.Info("🏛️ Validator council initialized",
 		zap.String("agent", agentConfig.Name),
 		zap.Int("validators", len(validators)),
 		zap.Float64("consensus_threshold", config.ConsensusThreshold),
+		zap.Bool("templates_loaded", templateManager != nil),
 	)
 
 	return &ValidatorCouncil{
-		config:      config,
-		validators:  validators,
-		agentConfig: agentConfig,
+		config:          config,
+		validators:      validators,
+		agentConfig:     agentConfig,
+		templateManager: templateManager,
 	}
 }
 
@@ -245,37 +263,55 @@ func (vc *ValidatorCouncil) runValidator(
 	marketData *models.MarketData,
 	position *models.Position,
 ) (*ValidatorResponse, error) {
-	// Build validator-specific prompt (for future use with custom validation method)
-	_ = vc.buildValidatorPrompt(validator.Role, decision, marketData, position)
+	// Build prompts from templates
+	systemPrompt, userPrompt := vc.buildPromptsFromTemplates(validator.Role, decision, marketData, position)
 
-	// Use agentic provider's evaluation capability
-	// We'll use EvaluateOption method with decision as an option
-	option := vc.decisionToOption(decision, marketData)
+	// Build validation request with pre-rendered prompts
+	validationRequest := &models.ValidationRequest{
+		ValidatorRole:     string(validator.Role),
+		SystemPrompt:      systemPrompt,
+		UserPrompt:        userPrompt,
+		AgentDecision:     decision,
+		AgentProfile:      vc.agentConfig,
+		MarketData:        marketData,
+		CurrentPosition:   position,
+		RecentPerformance: nil, // TODO: Pass performance snapshot
+	}
 
-	evaluation, err := validator.AIProvider.EvaluateOption(ctx, option, []models.SemanticMemory{})
+	// Use new ValidateDecision method for comprehensive validation
+	aiResponse, err := validator.AIProvider.ValidateDecision(ctx, validationRequest)
 	if err != nil {
 		return nil, fmt.Errorf("validator evaluation failed: %w", err)
 	}
 
-	// Convert evaluation to validator response
+	// Convert AI response to validator response
 	response := &ValidatorResponse{
-		ValidatorRole: validator.Role,
-		ProviderName:  validator.ProviderName,
-		Confidence:    evaluation.ConfidenceScore,
-		Reasoning:     evaluation.Reasoning,
+		ValidatorRole:     validator.Role,
+		ProviderName:      validator.ProviderName,
+		Verdict:           VerdictAbstain, // Default
+		Confidence:        aiResponse.Confidence,
+		Reasoning:         aiResponse.Reasoning,
+		RiskConcerns:      fmt.Sprintf("%v", aiResponse.KeyRisks),
+		RecommendedAction: aiResponse.RecommendedChanges,
 	}
 
-	// Determine verdict based on evaluation
-	// If confidence < 50 → reject, >= 70 → approve, else abstain
-	if evaluation.ConfidenceScore < 50 {
-		response.Verdict = VerdictReject
-		response.RiskConcerns = fmt.Sprintf("Risks: %v", evaluation.Risks)
-		response.RecommendedAction = "HOLD or wait for better setup"
-	} else if evaluation.ConfidenceScore >= 70 {
+	// Parse verdict from AI response
+	switch aiResponse.Verdict {
+	case "APPROVE":
 		response.Verdict = VerdictApprove
-	} else {
+	case "REJECT":
+		response.Verdict = VerdictReject
+	case "ABSTAIN":
 		response.Verdict = VerdictAbstain
-		response.Reasoning += " [Uncertain - neutral evaluation]"
+	default:
+		// Fallback: determine by confidence level
+		if aiResponse.Confidence < 50 {
+			response.Verdict = VerdictReject
+		} else if aiResponse.Confidence >= 70 {
+			response.Verdict = VerdictApprove
+		} else {
+			response.Verdict = VerdictAbstain
+		}
 	}
 
 	logger.Debug("validator vote cast",
@@ -288,12 +324,100 @@ func (vc *ValidatorCouncil) runValidator(
 	return response, nil
 }
 
-// buildValidatorPrompt creates role-specific validation prompt
-func (vc *ValidatorCouncil) buildValidatorPrompt(
+// buildPromptsFromTemplates builds validation prompts using loaded templates
+func (vc *ValidatorCouncil) buildPromptsFromTemplates(
 	role ValidatorRole,
 	decision *models.AgentDecision,
 	marketData *models.MarketData,
 	position *models.Position,
+) (systemPrompt string, userPrompt string) {
+	// If templates not loaded, use fallback
+	if vc.templateManager == nil {
+		return vc.buildFallbackPrompt(role, decision, marketData)
+	}
+
+	// Select template based on role
+	var templateName string
+	switch role {
+	case RoleRiskManager:
+		templateName = "risk_manager.tmpl"
+	case RoleTechnicalExpert:
+		templateName = "technical_expert.tmpl"
+	case RoleMarketPsychologist:
+		templateName = "market_psychologist.tmpl"
+	default:
+		templateName = "risk_manager.tmpl"
+	}
+
+	// Build request data for template
+	requestData := &models.ValidationRequest{
+		ValidatorRole:     string(role),
+		AgentDecision:     decision,
+		AgentProfile:      vc.agentConfig,
+		MarketData:        marketData,
+		CurrentPosition:   position,
+		RecentPerformance: nil,
+	}
+
+	// Render template
+	renderedPrompt, err := vc.templateManager.ExecuteTemplate(templateName, requestData)
+	if err != nil {
+		logger.Warn("failed to render validator template, using fallback",
+			zap.Error(err),
+			zap.String("template", templateName),
+		)
+		return vc.buildFallbackPrompt(role, decision, marketData)
+	}
+
+	// System prompt is minimal, all content in user prompt
+	systemPrompt = "You are a professional trading validator. Analyze the provided decision carefully and respond with structured JSON."
+	userPrompt = renderedPrompt
+
+	return systemPrompt, userPrompt
+}
+
+// buildFallbackPrompt creates basic prompt if templates unavailable
+func (vc *ValidatorCouncil) buildFallbackPrompt(
+	role ValidatorRole,
+	decision *models.AgentDecision,
+	marketData *models.MarketData,
+) (systemPrompt string, userPrompt string) {
+	systemPrompt = fmt.Sprintf(`You are a %s reviewing a trading decision.
+
+Respond in JSON:
+{
+  "verdict": "APPROVE" | "REJECT" | "ABSTAIN",
+  "confidence": 0-100,
+  "reasoning": "Your analysis",
+  "key_risks": ["risk1", "risk2"],
+  "key_opportunities": ["opp1"],
+  "recommended_changes": "What to change",
+  "critical_concerns": "Red flags"
+}`, role)
+
+	userPrompt = fmt.Sprintf(`Decision: %s %s at $%.2f (confidence: %d%%)
+Reason: %s
+
+Market: 24h change %.2f%%
+
+Validate this decision.`,
+		decision.Action,
+		decision.Symbol,
+		marketData.Ticker.Last.InexactFloat64(),
+		decision.Confidence,
+		decision.Reason,
+		marketData.Ticker.Change24h.InexactFloat64(),
+	)
+
+	return systemPrompt, userPrompt
+}
+
+// DEPRECATED: buildValidatorPrompt - old method, kept for reference
+func (vc *ValidatorCouncil) _buildValidatorPrompt_DEPRECATED(
+	role ValidatorRole,
+	decision *models.AgentDecision,
+	marketData *models.MarketData,
+	_ *models.Position, // Reserved for future use
 ) string {
 	baseContext := fmt.Sprintf(`You are a senior validator in a trading council reviewing a decision made by a junior trading agent.
 

@@ -93,48 +93,41 @@ func (w *NewsWorker) fetchAndCache(ctx context.Context) {
 		return
 	}
 
-	// Evaluate news with AI only (no keyword fallback)
+	// Evaluate news with AI (batch processing)
 	if !w.useAIEvaluation {
 		logger.Warn("AI evaluation disabled, news will be saved without impact scores")
 	}
 
-	// Collect successfully evaluated news items
-	evaluatedNews := make([]models.NewsItem, 0, len(summary.RecentNews))
-	failedCount := 0
-
-	for i := range summary.RecentNews {
-		if w.useAIEvaluation {
-			if err := w.newsEvaluator.EvaluateNews(ctx, &summary.RecentNews[i]); err != nil {
-				logger.Error("AI news evaluation failed, skipping news item",
-					zap.String("title", summary.RecentNews[i].Title),
-					zap.Error(err),
-				)
-				failedCount++
-				continue
-			}
+	// Batch evaluate all news items (more efficient than one-by-one)
+	if w.useAIEvaluation && w.newsEvaluator != nil {
+		// Convert to pointer slice for batch evaluation
+		newsPointers := make([]*models.NewsItem, len(summary.RecentNews))
+		for i := range summary.RecentNews {
+			newsPointers[i] = &summary.RecentNews[i]
 		}
-		// Add to evaluated list (with AI scores or default impact=5)
-		evaluatedNews = append(evaluatedNews, summary.RecentNews[i])
+
+		if err := w.newsEvaluator.EvaluateNewsBatch(ctx, newsPointers); err != nil {
+			logger.Error("AI batch news evaluation failed",
+				zap.Int("count", len(newsPointers)),
+				zap.Error(err),
+			)
+			// Don't return - save news even without AI scores
+		} else {
+			logger.Info("news batch evaluated successfully",
+				zap.Int("count", len(newsPointers)),
+			)
+		}
 	}
 
-	if failedCount > 0 {
-		logger.Warn("some news items failed AI evaluation",
-			zap.Int("failed", failedCount),
-			zap.Int("successful", len(evaluatedNews)),
-		)
-	}
+	// All news items are now evaluated (or have default scores)
+	evaluatedNews := summary.RecentNews
 
-	if len(evaluatedNews) == 0 {
-		logger.Warn("no news items to cache after AI evaluation")
-		return
-	}
-	
 	// Cache only successfully evaluated news items
 	if err := w.cache.Save(ctx, evaluatedNews); err != nil {
 		logger.Error("failed to cache news", zap.Error(err))
 		return
 	}
-	
+
 	// Log high impact news
 	highImpact := 0
 	for _, item := range evaluatedNews {

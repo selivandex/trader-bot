@@ -160,6 +160,17 @@ func (m *MockAIProvider) EvaluateNews(ctx context.Context, newsItem *models.News
 	return nil
 }
 
+func (m *MockAIProvider) EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error {
+	// Mock batch evaluation
+	for _, item := range newsItems {
+		item.Sentiment = 0.0
+		item.Relevance = 0.5
+		item.Impact = 5
+		item.Urgency = "HOURS"
+	}
+	return nil
+}
+
 func (m *MockAIProvider) GetName() string {
 	return "mock"
 }
