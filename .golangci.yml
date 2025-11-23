@@ -1,0 +1,113 @@
+run:
+  timeout: 5m
+  tests: true
+  go: "1.25"
+
+linters-settings:
+  govet:
+    enable-all: true
+  
+  gocyclo:
+    min-complexity: 15
+  
+  dupl:
+    threshold: 100
+  
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  
+  misspell:
+    locale: US
+  
+  lll:
+    line-length: 140
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+  
+  funlen:
+    lines: 100
+    statements: 50
+
+linters:
+  disable-all: true
+  enable:
+    # Core linters
+    - errcheck        # Check for unchecked errors
+    - gosimple        # Simplify code
+    - govet           # Reports suspicious constructs
+    - ineffassign     # Detect ineffectual assignments
+    - staticcheck     # Advanced static analysis
+    - unused          # Check for unused constants, variables, functions and types
+    - typecheck       # Type-check code
+    
+    # Additional useful linters
+    - bodyclose       # Check HTTP response body closed
+    - dupl            # Code clone detection
+    - gocyclo         # Cyclomatic complexity
+    - goconst         # Find repeated strings that could be constants
+    - gofmt           # Check code formatting
+    - goimports       # Check import statements formatting
+    - gosec           # Security problems
+    - misspell        # Spell checker
+    - unconvert       # Remove unnecessary type conversions
+    - unparam         # Check for unused function parameters
+    - whitespace      # Detect leading and trailing whitespace
+    
+    # Style linters
+    - stylecheck      # Replacement for golint
+
+issues:
+  # Directories to exclude
+  exclude-dirs:
+    - vendor
+    - .git
+    - logs
+
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl
+        - funlen
+        - gocyclo
+    
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    
+    # Allow long lines in generated files
+    - path: ".*\\.pb\\.go"
+      linters:
+        - lll
+    
+    # Ignore shadowing of 'err'
+    - linters:
+        - govet
+      text: "shadows declaration"
+
+  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
+  max-issues-per-linter: 0
+  
+  # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
+  max-same-issues: 0
+
+  # Show only new issues: if there are unstaged changes or untracked files,
+  # only those changes are analyzed, else only changes in HEAD~ are analyzed.
+  new: false
+
+  # Fix found issues (if it's supported by the linter)
+  fix: false

@@ -13,7 +13,7 @@ func (a *Aggregator) GetCachedSummary(ctx context.Context, since time.Duration) 
 		// Fallback to fetching if no cache
 		return a.FetchAllNews(ctx, since)
 	}
-	
+
 	return a.cache.GetSentimentSummary(ctx, since)
 }
 
@@ -22,16 +22,15 @@ func (a *Aggregator) GetCachedNews(ctx context.Context, since time.Duration, lim
 	if !a.useCache {
 		return nil, nil
 	}
-	
+
 	allNews, err := a.cache.GetRecent(ctx, since)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if limit > 0 && len(allNews) > limit {
 		return allNews[:limit], nil
 	}
-	
+
 	return allNews, nil
 }
-

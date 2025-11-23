@@ -55,14 +55,14 @@ type OnChainMetrics struct {
 
 // OnChainSummary aggregates on-chain signals for AI
 type OnChainSummary struct {
-	Symbol              string             `json:"symbol"`
-	WhaleActivity       string             `json:"whale_activity"`       // high, medium, low
-	ExchangeFlowDirection string           `json:"exchange_flow_direction"` // inflow, outflow, balanced
-	NetExchangeFlow     decimal.Decimal    `json:"net_exchange_flow"`
-	RecentWhaleMovements []WhaleTransaction `json:"recent_whale_movements,omitempty"`
-	HighImpactAlerts    []OnChainAlert     `json:"high_impact_alerts,omitempty"`
-	Metrics             *OnChainMetrics    `json:"metrics,omitempty"`
-	UpdatedAt           time.Time          `json:"updated_at"`
+	Symbol                string             `json:"symbol"`
+	WhaleActivity         string             `json:"whale_activity"`          // high, medium, low
+	ExchangeFlowDirection string             `json:"exchange_flow_direction"` // inflow, outflow, balanced
+	NetExchangeFlow       decimal.Decimal    `json:"net_exchange_flow"`
+	RecentWhaleMovements  []WhaleTransaction `json:"recent_whale_movements,omitempty"`
+	HighImpactAlerts      []OnChainAlert     `json:"high_impact_alerts,omitempty"`
+	Metrics               *OnChainMetrics    `json:"metrics,omitempty"`
+	UpdatedAt             time.Time          `json:"updated_at"`
 }
 
 // OnChainAlert represents significant on-chain event
@@ -80,7 +80,7 @@ func (ocs *OnChainSummary) GetWhaleActivityLevel() string {
 	if len(ocs.RecentWhaleMovements) == 0 {
 		return "low"
 	}
-	
+
 	// Count high impact movements
 	highImpact := 0
 	for _, whale := range ocs.RecentWhaleMovements {
@@ -88,13 +88,12 @@ func (ocs *OnChainSummary) GetWhaleActivityLevel() string {
 			highImpact++
 		}
 	}
-	
+
 	if highImpact >= 3 {
 		return "high"
 	} else if highImpact >= 1 || len(ocs.RecentWhaleMovements) >= 5 {
 		return "medium"
 	}
-	
+
 	return "low"
 }
-

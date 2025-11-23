@@ -171,4 +171,3 @@ func (r *Repository) DeleteOldRiskEvents(ctx context.Context, olderThan time.Dur
 	deleted, _ := result.RowsAffected()
 	return deleted, nil
 }
-

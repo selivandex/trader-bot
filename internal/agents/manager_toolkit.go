@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -92,6 +93,16 @@ func (r *repositoryAdapter) GetAgentPerformanceMetrics(ctx context.Context, agen
 		MaxLoss:       metrics.MaxLoss,
 		SharpeRatio:   metrics.SharpeRatio,
 	}, nil
+}
+
+func (r *repositoryAdapter) GetDecisionsInPeriod(ctx context.Context, agentID, symbol string, start, end time.Time) ([]models.AgentDecision, error) {
+	// TODO: Implement in Repository
+	return []models.AgentDecision{}, nil
+}
+
+func (r *repositoryAdapter) GetInsightsInPeriod(ctx context.Context, agentID string, start, end time.Time) ([]string, error) {
+	// TODO: Implement in Repository - query agent_reflections table
+	return []string{}, nil
 }
 
 // ensureDependencies ensures newsCache and marketRepo are available

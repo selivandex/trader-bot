@@ -1,0 +1,12 @@
+⚠️ LIQUIDATION RISK
+
+Position: {{.Side}} {{.Leverage}}x
+Entry: ${{printf "%.2f" .EntryPrice}}
+Current: ${{printf "%.2f" .CurrentPrice}}
+Loss: {{printf "%.1f" .PriceMove}}%
+Liquidation Distance: {{printf "%.1f" .LiquidationDistance}}%
+
+🚨 You are at {{printf "%.0f" .DistancePercent}}% of liquidation threshold!
+
+Action Required: Consider reducing leverage or closing position.
+

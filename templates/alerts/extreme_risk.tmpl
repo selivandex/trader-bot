@@ -1,0 +1,20 @@
+⚠️ EXTREME RISK DETECTED
+
+Proposed Position:
+- Symbol: {{.Symbol}}
+- Side: {{.Side}}
+- Size: {{printf "%.4f" .Size}}
+- Leverage: {{.Leverage}}x
+- Stop Loss: ${{printf "%.2f" .StopLoss}}
+
+Risk Analysis:
+- Risk Score: {{.RiskScore}}/10 (EXTREME)
+- Max Loss: ${{printf "%.2f" .MaxLoss}}
+- Risk %: {{printf "%.1f" .RiskPercent}}% of balance
+- Liquidation: ${{printf "%.2f" .LiquidationPrice}}
+- R:R Ratio: {{printf "%.2f" .RiskRewardRatio}}:1
+
+🚨 Risk score {{.RiskScore}}/10 is EXTREME!
+
+Recommendation: Reduce leverage or position size before entering.
+

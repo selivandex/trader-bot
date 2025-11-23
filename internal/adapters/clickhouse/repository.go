@@ -253,7 +253,7 @@ func (r *Repository) SaveOnChainTransactions(ctx context.Context, transactions [
 	return nil
 }
 
-// SaveAgentMetrics saves agent performance snapshots
+// SaveAgentMetrics saves multiple agent metrics in batch (ClickHouse optimized)
 func (r *Repository) SaveAgentMetrics(ctx context.Context, metrics []models.AgentMetric) error {
 	if len(metrics) == 0 {
 		return nil
@@ -265,11 +265,13 @@ func (r *Repository) SaveAgentMetrics(ctx context.Context, metrics []models.Agen
 	}
 
 	stmt, err := tx.Preparex(`
-		INSERT INTO agent_performance 
-		(agent_id, timestamp, symbol, balance, equity, pnl, pnl_percent, 
-		 total_trades, winning_trades, losing_trades, win_rate, sharpe_ratio, 
-		 max_drawdown, current_drawdown)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agent_performance_metrics (
+			agent_id, agent_name, personality, symbol, timestamp,
+			decisions_total, decisions_hold, decisions_open, decisions_close,
+			ai_cost_usd, validator_cost_usd, total_cost_usd,
+			balance, equity, pnl, pnl_percent,
+			total_trades, winning_trades, losing_trades, win_rate
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		tx.Rollback()
@@ -278,21 +280,32 @@ func (r *Repository) SaveAgentMetrics(ctx context.Context, metrics []models.Agen
 	defer stmt.Close()
 
 	for _, metric := range metrics {
+		balance, _ := metric.Balance.Float64()
+		equity, _ := metric.Equity.Float64()
+		pnl, _ := metric.PnL.Float64()
+		totalCost := metric.AICostUSD + metric.ValidatorCostUSD
+
 		_, err = stmt.ExecContext(ctx,
 			metric.AgentID,
-			metric.Timestamp,
+			metric.AgentName,
+			metric.Personality,
 			metric.Symbol,
-			metric.Balance.InexactFloat64(),
-			metric.Equity.InexactFloat64(),
-			metric.PnL.InexactFloat64(),
+			metric.Timestamp,
+			metric.DecisionsTotal,
+			metric.DecisionsHold,
+			metric.DecisionsOpen,
+			metric.DecisionsClose,
+			metric.AICostUSD,
+			metric.ValidatorCostUSD,
+			totalCost,
+			balance,
+			equity,
+			pnl,
 			metric.PnLPercent,
 			metric.TotalTrades,
 			metric.WinningTrades,
 			metric.LosingTrades,
 			metric.WinRate,
-			metric.SharpeRatio,
-			metric.MaxDrawdown,
-			metric.CurrentDrawdown,
 		)
 		if err != nil {
 			tx.Rollback()

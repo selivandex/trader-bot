@@ -1,0 +1,22 @@
+🤖 *{{.AgentID}}* - Custom Period Report
+📅 {{.Period.Start.Format "Jan 2, 2006"}} - {{.Period.End.Format "Jan 2, 2006"}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 *PERIOD SUMMARY*
+
+Duration: {{printf "%.0f" .Metrics.Duration.Hours}} hours ({{printf "%.1f" (div .Metrics.Duration.Hours 24)}} days)
+Total Decisions: {{.Metrics.TotalDecisions}}
+Trades Executed: {{.Metrics.ExecutedTrades}}
+
+{{if gt .Metrics.ExecutedTrades 0}}
+Win Rate: {{printf "%.1f" (mul .Metrics.WinRate 100)}}%
+Total PnL: ${{printf "%.2f" .Metrics.TotalPnL}}{{if gt .Metrics.TotalPnL 0}} 📈{{else if lt .Metrics.TotalPnL 0}} 📉{{end}}
+{{else}}
+No trades executed in this period.
+{{end}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏰ Generated: {{.GeneratedAt.Format "2006-01-02 15:04:05"}}
+

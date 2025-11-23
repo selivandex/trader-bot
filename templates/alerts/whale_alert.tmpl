@@ -1,0 +1,19 @@
+🐋 WHALE ALERT
+
+Amount: ${{printf "%.1f" .AmountM}}M
+Type: {{.TransactionType}}
+Direction: {{.Direction}} {{.DirectionEmoji}}
+
+From: {{.FromAddress}}
+To: {{.ToAddress}}
+Exchange: {{.ExchangeName}}
+Time: {{.TimeAgo}}
+
+{{if eq .Direction "accumulation"}}
+📈 Whales are ACCUMULATING (moving OFF exchanges) - Potentially bullish
+{{else}}
+📉 Whales are DISTRIBUTING (moving TO exchanges) - Potentially bearish
+{{end}}
+
+Pattern Strength: {{printf "%.0f" .PatternStrength}}/100
+

@@ -7,3 +7,6 @@ alwaysApply: true
 DON'T CREATE .md DOCS FILES WITHOUT MY PERMISSION
 
 Never write direct sql queries, use repository pattern!
+
+WRONG: write SQL queries direct in components / packages 
+CORRECT: write SQL in repositories and use repo in code

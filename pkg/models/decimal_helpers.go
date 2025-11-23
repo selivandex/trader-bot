@@ -31,4 +31,3 @@ func DecimalFromString(s string) decimal.Decimal {
 func NewDecimalFromString(s string) decimal.Decimal {
 	return DecimalFromString(s)
 }
-

@@ -197,6 +197,17 @@ type AgentToolkit interface {
 
 	// RequestHumanInput asks owner for input (future feature)
 	RequestHumanInput(ctx context.Context, question string, options []string) (string, error)
+
+	// ============ Reporting Tools ============
+
+	// GenerateDailyReport generates daily performance report
+	GenerateDailyReport(ctx context.Context, date time.Time) (string, error)
+
+	// GenerateWeeklyReport generates weekly summary
+	GenerateWeeklyReport(ctx context.Context, weekStart time.Time) (string, error)
+
+	// SendDailyReportToOwner generates and sends daily report
+	SendDailyReportToOwner(ctx context.Context) error
 }
 
 // PositionRiskMetrics contains risk calculations for proposed position

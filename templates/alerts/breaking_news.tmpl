@@ -1,0 +1,15 @@
+🚨 CRITICAL NEWS DETECTED
+
+Impact: {{.Impact}}/10
+Sentiment: {{printf "%.2f" .Sentiment}} ({{.SentimentLabel}})
+Source: {{.Source}}
+Published: {{.PublishedAgo}}
+
+📰 {{.Title}}
+
+{{if .Content}}
+Summary: {{.Content}}
+{{end}}
+
+💡 This may significantly affect your {{.Symbol}} position.
+

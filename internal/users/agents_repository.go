@@ -167,13 +167,13 @@ func (r *AgentsRepository) GetUserTradingPairs(ctx context.Context, userID strin
 		WHERE user_id = $1 AND is_active = true
 		ORDER BY created_at DESC
 	`
-	
+
 	var pairs []models.UserTradingPair
 	err := r.db.DB().SelectContext(ctx, &pairs, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trading pairs: %w", err)
 	}
-	
+
 	return pairs, nil
 }
 
@@ -185,18 +185,18 @@ func (r *AgentsRepository) GetAllUserExchanges(ctx context.Context, userID strin
 		WHERE user_id = $1 AND is_active = true
 		ORDER BY created_at DESC
 	`
-	
+
 	rows, err := r.db.DB().QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get exchanges: %w", err)
 	}
 	defer rows.Close()
-	
+
 	exchanges := []models.UserExchange{}
 	for rows.Next() {
 		var ex models.UserExchange
 		var encryptedKey, encryptedSecret string
-		
+
 		err := rows.Scan(
 			&ex.ID, &ex.UserID, &ex.Exchange,
 			&encryptedKey, &encryptedSecret,
@@ -205,14 +205,14 @@ func (r *AgentsRepository) GetAllUserExchanges(ctx context.Context, userID strin
 		if err != nil {
 			continue
 		}
-		
+
 		// Decrypt credentials
 		ex.APIKey, _ = crypto.Decrypt(encryptedKey)
 		ex.APISecret, _ = crypto.Decrypt(encryptedSecret)
-		
+
 		exchanges = append(exchanges, ex)
 	}
-	
+
 	return exchanges, nil
 }
 
@@ -229,11 +229,11 @@ func (r *AgentsRepository) GetTradingPairWithExchange(ctx context.Context, pairI
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get trading pair: %w", err)
 	}
-	
+
 	// Get exchange
 	var ex models.UserExchange
 	var encryptedKey, encryptedSecret string
-	
+
 	exQuery := `
 		SELECT id, user_id, exchange, api_key_encrypted, api_secret_encrypted, testnet, is_active, created_at, updated_at
 		FROM user_exchanges
@@ -247,11 +247,11 @@ func (r *AgentsRepository) GetTradingPairWithExchange(ctx context.Context, pairI
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get exchange: %w", err)
 	}
-	
+
 	// Decrypt
 	ex.APIKey, _ = crypto.Decrypt(encryptedKey)
 	ex.APISecret, _ = crypto.Decrypt(encryptedSecret)
-	
+
 	return &pair, &ex, nil
 }
 

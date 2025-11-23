@@ -1,0 +1,17 @@
+💡 VALUABLE INSIGHT DISCOVERED
+
+{{.Insight}}
+
+Context: {{.Context}}
+Confidence: {{printf "%.0f" .Confidence}}%
+
+{{if .SupportingData}}
+Supporting Data:
+{{range .SupportingData}}
+- {{.}}
+{{end}}
+{{end}}
+
+✅ This insight may improve future performance.
+Storing in semantic memory for future reference.
+

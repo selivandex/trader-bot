@@ -5,8 +5,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/selivandex/trader-bot/pkg/models"
 	"github.com/cinar/indicator"
+	"github.com/selivandex/trader-bot/pkg/models"
 )
 
 // Calculator calculates technical indicators from candle data

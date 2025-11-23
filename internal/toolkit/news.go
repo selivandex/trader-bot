@@ -75,7 +75,7 @@ func (t *LocalToolkit) CountNewsBySentiment(ctx context.Context, since time.Dura
 	}
 
 	var positive, negative, neutral int
-	
+
 	for _, item := range news {
 		if item.Sentiment > 0.2 {
 			positive++
@@ -134,4 +134,3 @@ func (t *LocalToolkit) GetRelatedNews(ctx context.Context, clusterID string) ([]
 
 	return news, nil
 }
-

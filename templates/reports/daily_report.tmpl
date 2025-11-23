@@ -1,0 +1,44 @@
+🤖 *{{.AgentName}}* - Daily Report
+📅 {{.Date.Format "Monday, January 2, 2006"}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 *TRADING ACTIVITY*
+
+Decisions Made: {{.Metrics.TotalDecisions}}
+Trades Executed: {{.Metrics.ExecutedTrades}}
+Hold Decisions: {{.Metrics.HoldCount}}
+
+📈 Longs: {{.Metrics.LongCount}}
+📉 Shorts: {{.Metrics.ShortCount}}
+🔄 Closes: {{.Metrics.CloseCount}}
+
+High Confidence (≥80%): {{.Metrics.HighConfidenceCount}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 *PERFORMANCE*
+
+Win Rate: {{printf "%.1f" (mul .Metrics.WinRate 100)}}% ({{.Metrics.WinningTrades}}W / {{.Metrics.LosingTrades}}L)
+Total PnL: ${{printf "%.2f" .Metrics.TotalPnL}}{{if gt .Metrics.TotalPnL 0}} 📈{{else if lt .Metrics.TotalPnL 0}} 📉{{else}} ➡️{{end}}
+
+Best Trade: ${{printf "%.2f" .Metrics.BestTrade}}
+Worst Trade: ${{printf "%.2f" .Metrics.WorstTrade}}
+
+Balance: ${{printf "%.2f" .Metrics.StartBalance}} → ${{printf "%.2f" .Metrics.EndBalance}}
+Daily Return: {{printf "%.2f" (mul .Metrics.DailyReturn 100)}}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{if .Insights}}
+💡 *KEY INSIGHTS*
+
+{{range $i, $insight := .Insights}}{{if lt $i 5}}
+{{add $i 1}}. {{$insight}}
+{{end}}{{end}}
+{{end}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏰ Generated: {{.GeneratedAt.Format "15:04:05"}}
+

@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	etherscanAPIURL      = "https://api.etherscan.io/api"
-	usdtContractAddress  = "0xdac17f958d2ee523a2206206994597c13d831ec7"
-	usdcContractAddress  = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+	etherscanAPIURL     = "https://api.etherscan.io/api"
+	usdtContractAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+	usdcContractAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 )
 
 // EtherscanAdapter implements OnChainProvider for Etherscan API (USDT/USDC/ETH, free)
@@ -58,18 +58,18 @@ func (es *EtherscanAdapter) FetchRecentTransactions(ctx context.Context, minValu
 	if !es.enabled {
 		return nil, nil
 	}
-	
+
 	// Fetch USDT transfers (most important for crypto markets)
 	usdtTxs, err := es.fetchTokenTransfers(ctx, usdtContractAddress, "USDT", minValueUSD)
 	if err != nil {
 		logger.Warn("failed to fetch USDT transactions", zap.Error(err))
 		return nil, err
 	}
-	
+
 	// TODO: Add USDC, ETH if needed
 	// usdcTxs, _ := es.fetchTokenTransfers(ctx, usdcContractAddress, "USDC", minValueUSD)
 	// ethTxs, _ := es.fetchETHTransactions(ctx, minValueUSD)
-	
+
 	return usdtTxs, nil
 }
 
@@ -78,26 +78,26 @@ func (es *EtherscanAdapter) fetchTokenTransfers(ctx context.Context, contractAdd
 	// Get recent token transfers
 	// Note: Etherscan free API is limited - can only get transfers for specific address
 	// For whale monitoring, would need premium API or different approach
-	
+
 	url := fmt.Sprintf("%s?module=account&action=tokentx&contractaddress=%s&apikey=%s&sort=desc",
 		etherscanAPIURL, contractAddress, es.apiKey)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	resp, err := es.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	var result struct {
 		Status  string `json:"status"`
 		Message string `json:"message"`
@@ -110,40 +110,40 @@ func (es *EtherscanAdapter) fetchTokenTransfers(ctx context.Context, contractAdd
 			TimeStamp   string `json:"timeStamp"`
 		} `json:"result"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	if result.Status != "1" {
 		return nil, fmt.Errorf("API returned error: %s", result.Message)
 	}
-	
+
 	transactions := []models.WhaleTransaction{}
-	
+
 	for _, tx := range result.Result {
 		// Parse value (in smallest unit: USDT has 6 decimals)
 		value, _ := strconv.ParseFloat(tx.Value, 64)
 		usdtAmount := value / 1_000_000 // Convert from smallest unit
-		
+
 		// Filter by minimum
 		if usdtAmount < float64(minValueUSD) {
 			continue
 		}
-		
+
 		// Classify addresses
 		fromOwner := classifyETHAddress(tx.From)
 		toOwner := classifyETHAddress(tx.To)
-		
+
 		transactionType := "whale_movement"
 		if fromOwner != "unknown" && toOwner == "unknown" {
 			transactionType = "exchange_outflow"
 		} else if fromOwner == "unknown" && toOwner != "unknown" {
 			transactionType = "exchange_inflow"
 		}
-		
+
 		timestamp, _ := strconv.ParseInt(tx.TimeStamp, 10, 64)
-		
+
 		transactions = append(transactions, models.WhaleTransaction{
 			TxHash:          tx.Hash,
 			Blockchain:      "ethereum",
@@ -159,12 +159,12 @@ func (es *EtherscanAdapter) fetchTokenTransfers(ctx context.Context, contractAdd
 			ImpactScore:     calculateImpactScore(usdtAmount),
 		})
 	}
-	
+
 	logger.Debug("etherscan transactions fetched",
 		zap.String("symbol", symbol),
 		zap.Int("count", len(transactions)),
 	)
-	
+
 	return transactions, nil
 }
 
@@ -177,11 +177,10 @@ func classifyETHAddress(addr string) string {
 		"0x21a31ee1afc51d94c2efccaa2092ad1028285549": "binance_cold",
 		// Add more...
 	}
-	
+
 	if owner, ok := knownAddresses[addr]; ok {
 		return owner
 	}
-	
+
 	return "unknown"
 }
-

@@ -18,4 +18,3 @@ type AgentLock interface {
 	// GetAgentID returns the agent ID this lock is for
 	GetAgentID() string
 }
-

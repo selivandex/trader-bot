@@ -86,23 +86,29 @@ type AgentState struct {
 
 // AgentDecision represents a decision made by an agent
 type AgentDecision struct {
-	ID             string          `json:"id" db:"id"`
-	AgentID        string          `json:"agent_id" db:"agent_id"`
-	Symbol         string          `json:"symbol" db:"symbol"`
-	Action         AIAction        `json:"action" db:"action"`
-	Confidence     int             `json:"confidence" db:"confidence"`
-	Reason         string          `json:"reason" db:"reason"`
-	TechnicalScore float64         `json:"technical_score" db:"technical_score"`
-	NewsScore      float64         `json:"news_score" db:"news_score"`
-	OnChainScore   float64         `json:"onchain_score" db:"onchain_score"`
-	SentimentScore float64         `json:"sentiment_score" db:"sentiment_score"`
-	FinalScore     float64         `json:"final_score" db:"final_score"`
-	MarketData     string          `json:"market_data" db:"market_data"` // JSONB
-	Executed       bool            `json:"executed" db:"executed"`
-	ExecutionPrice decimal.Decimal `json:"execution_price" db:"execution_price"`
-	ExecutionSize  decimal.Decimal `json:"execution_size" db:"execution_size"`
-	Outcome        string          `json:"outcome" db:"outcome"` // JSONB with PnL, duration, etc
-	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
+	ID                 string          `json:"id" db:"id"`
+	AgentID            string          `json:"agent_id" db:"agent_id"`
+	Symbol             string          `json:"symbol" db:"symbol"`
+	Action             AIAction        `json:"action" db:"action"`
+	Confidence         int             `json:"confidence" db:"confidence"`
+	Reason             string          `json:"reason" db:"reason"`
+	TechnicalScore     float64         `json:"technical_score" db:"technical_score"`
+	NewsScore          float64         `json:"news_score" db:"news_score"`
+	OnChainScore       float64         `json:"onchain_score" db:"onchain_score"`
+	SentimentScore     float64         `json:"sentiment_score" db:"sentiment_score"`
+	FinalScore         float64         `json:"final_score" db:"final_score"`
+	MarketData         string          `json:"market_data" db:"market_data"` // JSONB
+	Executed           bool            `json:"executed" db:"executed"`
+	ExecutionPrice     decimal.Decimal `json:"execution_price" db:"execution_price"`
+	ExecutionSize      decimal.Decimal `json:"execution_size" db:"execution_size"`
+	OrderID            string          `json:"order_id" db:"order_id"`                         // Exchange order ID
+	StopLossOrderID    string          `json:"stop_loss_order_id" db:"stop_loss_order_id"`     // SL order ID
+	TakeProfitOrderID  string          `json:"take_profit_order_id" db:"take_profit_order_id"` // TP order ID
+	ValidatorConsensus string          `json:"validator_consensus" db:"validator_consensus"`   // JSONB
+	CoTTrace           string          `json:"cot_trace" db:"cot_trace"`                       // JSONB - Chain-of-Thought trace
+	Outcome            string          `json:"outcome" db:"outcome"`                           // JSONB with PnL, duration, etc
+	ClosedAt           *time.Time      `json:"closed_at" db:"closed_at"`                       // When position closed
+	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 }
 
 // AgentMemory stores learning data for adaptation
@@ -170,20 +176,36 @@ type SignalScore struct {
 
 // AgentMetric represents performance snapshot for ClickHouse
 type AgentMetric struct {
-	AgentID         string          `json:"agent_id"`
-	Timestamp       time.Time       `json:"timestamp"`
-	Symbol          string          `json:"symbol"`
-	Balance         decimal.Decimal `json:"balance"`
-	Equity          decimal.Decimal `json:"equity"`
-	PnL             decimal.Decimal `json:"pnl"`
-	PnLPercent      float64         `json:"pnl_percent"`
-	TotalTrades     int             `json:"total_trades"`
-	WinningTrades   int             `json:"winning_trades"`
-	LosingTrades    int             `json:"losing_trades"`
-	WinRate         float64         `json:"win_rate"`
-	SharpeRatio     float64         `json:"sharpe_ratio"`
-	MaxDrawdown     float64         `json:"max_drawdown"`
-	CurrentDrawdown float64         `json:"current_drawdown"`
+	AgentID     string          `json:"agent_id"`
+	AgentName   string          `json:"agent_name"`
+	Personality string          `json:"personality"`
+	Timestamp   time.Time       `json:"timestamp"`
+	Symbol      string          `json:"symbol"`
+	Balance     decimal.Decimal `json:"balance"`
+	Equity      decimal.Decimal `json:"equity"`
+	PnL         decimal.Decimal `json:"pnl"`
+	PnLPercent  float64         `json:"pnl_percent"`
+
+	// Decision metrics
+	DecisionsTotal int `json:"decisions_total"`
+	DecisionsHold  int `json:"decisions_hold"`
+	DecisionsOpen  int `json:"decisions_open"`
+	DecisionsClose int `json:"decisions_close"`
+
+	// Trading performance
+	TotalTrades   int     `json:"total_trades"`
+	WinningTrades int     `json:"winning_trades"`
+	LosingTrades  int     `json:"losing_trades"`
+	WinRate       float64 `json:"win_rate"`
+
+	// Cost tracking
+	AICostUSD        float64 `json:"ai_cost_usd"`
+	ValidatorCostUSD float64 `json:"validator_cost_usd"`
+
+	// Risk metrics
+	SharpeRatio     float64 `json:"sharpe_ratio"`
+	MaxDrawdown     float64 `json:"max_drawdown"`
+	CurrentDrawdown float64 `json:"current_drawdown"`
 }
 
 // CalculateFinalScore computes weighted final score for agent decision

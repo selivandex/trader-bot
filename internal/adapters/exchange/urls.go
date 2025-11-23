@@ -15,4 +15,3 @@ const (
 	BybitTestnetPublic  = "https://api-testnet.bybit.com"
 	BybitTestnetPrivate = "https://api-testnet.bybit.com"
 )
-

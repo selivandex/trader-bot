@@ -66,7 +66,13 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
     executed BOOLEAN NOT NULL DEFAULT false,
     execution_price DECIMAL(20, 8),
     execution_size DECIMAL(20, 8),
+    order_id VARCHAR(100), -- Exchange order ID for entry
+    stop_loss_order_id VARCHAR(100), -- Exchange SL order ID
+    take_profit_order_id VARCHAR(100), -- Exchange TP order ID
+    validator_consensus JSONB, -- Validator council decision details
+    cot_trace JSONB, -- Chain-of-Thought reasoning trace
     outcome JSONB,
+    closed_at TIMESTAMP, -- When position was closed
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     
     CONSTRAINT check_confidence CHECK (confidence >= 0 AND confidence <= 100),
@@ -84,6 +90,8 @@ CREATE INDEX idx_agent_decisions_symbol ON agent_decisions(symbol);
 CREATE INDEX idx_agent_decisions_action ON agent_decisions(action);
 CREATE INDEX idx_agent_decisions_executed ON agent_decisions(executed);
 CREATE INDEX idx_agent_decisions_created_at ON agent_decisions(created_at DESC);
+CREATE INDEX idx_agent_decisions_order_id ON agent_decisions(order_id) WHERE order_id IS NOT NULL;
+CREATE INDEX idx_agent_decisions_closed_at ON agent_decisions(closed_at DESC) WHERE closed_at IS NOT NULL;
 
 -- Agent Memory (Learning & Adaptation)
 CREATE TABLE IF NOT EXISTS agent_memory (

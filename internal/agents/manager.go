@@ -187,11 +187,11 @@ func (am *AgenticManager) StartAgenticAgent(
 
 	// Create all agent components
 	memoryManager := NewSemanticMemoryManager(am.repository, aiProvider, am.embeddingClient)
-	
+
 	// Use Adaptive CoT Engine (true autonomous reasoning, not fixed pipeline)
 	// Toolkit will be set later in initializeToolkit()
 	cotEngine := NewAdaptiveCoTEngine(config, aiProvider, memoryManager, nil)
-	
+
 	reflectionEngine := NewReflectionEngine(config, aiProvider, am.repository, memoryManager)
 	planningEngine := NewPlanningEngine(config, aiProvider, am.repository, memoryManager)
 
@@ -836,7 +836,7 @@ func (am *AgenticManager) openPosition(
 	}
 
 	// Set Stop Loss order (exit on loss)
-	_, err = runner.Exchange.CreateOrder(
+	slOrder, err := runner.Exchange.CreateOrder(
 		ctx,
 		runner.State.Symbol,
 		models.TypeStopMarket, // Stop-market order
@@ -847,10 +847,12 @@ func (am *AgenticManager) openPosition(
 	if err != nil {
 		logger.Warn("failed to create stop-loss order", zap.Error(err))
 		// Continue despite error - position is open
+	} else {
+		decision.StopLossOrderID = slOrder.ID
 	}
 
 	// Set Take Profit order (exit on profit)
-	_, err = runner.Exchange.CreateOrder(
+	tpOrder, err := runner.Exchange.CreateOrder(
 		ctx,
 		runner.State.Symbol,
 		models.TypeTakeProfitMarket, // Take-profit market order
@@ -861,6 +863,8 @@ func (am *AgenticManager) openPosition(
 	if err != nil {
 		logger.Warn("failed to create take-profit order", zap.Error(err))
 		// Continue despite error - position is open
+	} else {
+		decision.TakeProfitOrderID = tpOrder.ID
 	}
 
 	logger.Info("✅ Position opened by agent",
@@ -879,6 +883,12 @@ func (am *AgenticManager) openPosition(
 	decision.Executed = true
 	decision.ExecutionPrice = order.Price
 	decision.ExecutionSize = models.NewDecimal(size)
+	decision.OrderID = order.ID // Save exchange order ID
+
+	// Update decision in DB with order IDs
+	if err := am.repository.SaveDecision(ctx, decision); err != nil {
+		logger.Error("failed to update decision with order IDs", zap.Error(err))
+	}
 
 	return nil
 }

@@ -75,7 +75,7 @@ func (t *LocalToolkit) CalculatePositionRisk(ctx context.Context, symbol string,
 	var probabilityProfit float64 = 0.5 // Default
 	if memory != nil {
 		// Use average success rate as probability
-		probabilityProfit = (memory.TechnicalSuccessRate + memory.NewsSuccessRate + 
+		probabilityProfit = (memory.TechnicalSuccessRate + memory.NewsSuccessRate +
 			memory.OnChainSuccessRate + memory.SentimentSuccessRate) / 4.0
 	}
 
@@ -255,4 +255,3 @@ func calculateRiskScore(riskPercent, leverage, rrRatio float64) int {
 
 	return int(score)
 }
-

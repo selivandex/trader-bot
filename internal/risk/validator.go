@@ -54,7 +54,7 @@ func (v *Validator) validateOpenAction(decision *models.AIDecision, marketData *
 	size := models.ToFloat64(decision.Size)
 	stopLoss := models.ToFloat64(decision.StopLoss)
 	takeProfit := models.ToFloat64(decision.TakeProfit)
-	
+
 	if size <= 0 {
 		return fmt.Errorf("invalid position size: %.8f", size)
 	}
@@ -172,7 +172,7 @@ func (v *Validator) SanityCheck(decision *models.AIDecision, currentPrice float6
 	stopLoss := models.ToFloat64(decision.StopLoss)
 	takeProfit := models.ToFloat64(decision.TakeProfit)
 	size := models.ToFloat64(decision.Size)
-	
+
 	// Check if prices are in reasonable range
 	if stopLoss > 0 {
 		slDiff := absFloat(currentPrice-stopLoss) / currentPrice * 100

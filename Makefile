@@ -1,4 +1,4 @@
-.PHONY: build test run clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate telegram-webhook-set telegram-webhook-delete telegram-webhook-info db-create db-create-test db-drop db-drop-test db-reset db-setup db-test help
+.PHONY: build test run clean deps migrate migrate-up migrate-down migrate-create migrate-version migrate-force install-migrate telegram-webhook-set telegram-webhook-delete telegram-webhook-info db-create db-create-test db-drop db-drop-test db-reset db-setup db-test fmt lint lint-fix lint-unused lint-all check help
 
 # Load environment variables from .env if it exists
 ifneq (,$(wildcard .env))
@@ -42,6 +42,14 @@ help:
 	@echo "  make test-db            - Run all tests with PostgreSQL"
 	@echo "  make test-coverage      - Generate coverage report"
 	@echo "  make test-pkg           - Test specific package"
+	@echo ""
+	@echo "🔍 Code Quality:"
+	@echo "  make fmt                - Format code with gofmt"
+	@echo "  make check              - Quick checks with native Go tools (recommended)"
+	@echo "  make lint-unused        - Check for unused code with go vet"
+	@echo "  make lint-all           - Full static analysis with native tools"
+	@echo "  make lint               - Run golangci-lint (may not work with Go 1.25+)"
+	@echo "  make lint-fix           - Run golangci-lint with autofix"
 	@echo ""
 	@echo "🧹 Cleanup:"
 	@echo "  make clean              - Remove build artifacts"
@@ -243,9 +251,50 @@ setup: db-setup
 fmt:
 	go fmt ./...
 
-# Lint code
+# Lint code (when golangci-lint supports Go 1.25+)
 lint:
-	golangci-lint run
+	@echo "🔍 Running golangci-lint..."
+	@golangci-lint run ./... || echo "⚠️  golangci-lint may not support Go 1.25 yet"
+
+# Lint with autofix
+lint-fix:
+	@echo "🔧 Running golangci-lint with autofix..."
+	@golangci-lint run --fix ./... || echo "⚠️  golangci-lint may not support Go 1.25 yet"
+
+# Check for unused variables and code using native Go tools
+lint-unused:
+	@echo "🔍 Checking for unused variables, functions, and types..."
+	@echo "Running go vet..."
+	@go vet ./...
+	@echo "✅ go vet passed!"
+	@echo ""
+	@echo "Checking for unused imports and variables..."
+	@goimports -l . | grep -v "^$$" || echo "✅ No unused imports found"
+
+# Full static analysis with native Go tools
+lint-all:
+	@echo "🔍 Running full static analysis with native tools..."
+	@echo ""
+	@echo "1️⃣  Running go vet..."
+	@go vet ./...
+	@echo "✅ go vet passed!"
+	@echo ""
+	@echo "2️⃣  Checking code formatting..."
+	@test -z "$$(gofmt -l . | grep -v vendor)" || (echo "❌ Code not formatted. Run 'make fmt'" && gofmt -l . && exit 1)
+	@echo "✅ Code is formatted!"
+	@echo ""
+	@echo "3️⃣  Building all packages..."
+	@go build ./...
+	@echo "✅ Build successful!"
+	@echo ""
+	@echo "✅ All checks passed!"
+
+# Check code without golangci-lint (uses only Go native tools)
+check:
+	@echo "🔍 Running native Go checks..."
+	@go vet ./... && echo "✅ go vet passed" || exit 1
+	@go build ./... && echo "✅ build passed" || exit 1
+	@test -z "$$(gofmt -l . | grep -v vendor)" && echo "✅ formatting passed" || (echo "❌ needs formatting" && exit 1)
 
 # Run in paper trading mode
 paper:

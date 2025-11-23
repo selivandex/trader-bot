@@ -299,4 +299,3 @@ func (r *Repository) CleanupOldExchangeFlows(ctx context.Context, olderThan time
 	deleted, _ := result.RowsAffected()
 	return deleted, nil
 }
-

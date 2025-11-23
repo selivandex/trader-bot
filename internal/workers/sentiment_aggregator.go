@@ -13,10 +13,10 @@ import (
 
 // SentimentAggregator calculates rolling sentiment metrics with impact weighting
 type SentimentAggregator struct {
-	repo      *Repository
-	newsRepo  *news.Repository
-	interval  time.Duration
-	cache     *SentimentCache
+	repo     *Repository
+	newsRepo *news.Repository
+	interval time.Duration
+	cache    *SentimentCache
 }
 
 // SentimentCache caches current sentiment in memory
@@ -119,7 +119,6 @@ func (sa *SentimentAggregator) calculateMetrics(ctx context.Context) {
 		zap.String("trend", trend.Direction),
 	)
 }
-
 
 // calculateTrend calculates sentiment trend from recent snapshots
 func (sa *SentimentAggregator) calculateTrend(ctx context.Context) *models.SentimentTrend {

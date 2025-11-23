@@ -1,0 +1,15 @@
+❓ LOW CONFIDENCE DECISION
+
+Situation: {{.Situation}}
+Best Option: {{.BestOption}}
+Confidence: {{printf "%.0f" .Confidence}}%
+
+⚠️ Confidence is below threshold (need 70%+ for execution)
+
+Analysis:
+{{range .TopEvaluations}}
+- {{.Description}}: {{printf "%.1f" .Score}}/100
+{{end}}
+
+💡 May need human judgment or more data gathering.
+

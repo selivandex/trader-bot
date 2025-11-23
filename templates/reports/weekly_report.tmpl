@@ -1,0 +1,46 @@
+🤖 *{{.AgentID}}* - Weekly Report
+📅 {{.WeekStart.Format "Jan 2"}} - {{.WeekEnd.Format "Jan 2, 2006"}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 *WEEK SUMMARY*
+
+Trading Days: {{.WeekMetrics.TradingDays}}/7
+Total Decisions: {{.WeekMetrics.TotalDecisions}}
+Trades Executed: {{.WeekMetrics.ExecutedTrades}}
+
+Win Rate: {{printf "%.1f" (mul .WeekMetrics.WinRate 100)}}% ({{.WeekMetrics.WinningTrades}}W / {{.WeekMetrics.LosingTrades}}L)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 *PERFORMANCE*
+
+Weekly PnL: ${{printf "%.2f" .WeekMetrics.TotalPnL}}{{if gt .WeekMetrics.TotalPnL 0}} 📈{{else if lt .WeekMetrics.TotalPnL 0}} 📉{{end}}
+Weekly Return: {{printf "%.2f" (mul .WeekMetrics.WeeklyReturn 100)}}%
+
+Best Day: ${{printf "%.2f" .WeekMetrics.BestDay}}
+Worst Day: ${{printf "%.2f" .WeekMetrics.WorstDay}}
+
+Balance: ${{printf "%.2f" .WeekMetrics.StartBalance}} → ${{printf "%.2f" .WeekMetrics.EndBalance}}
+
+Sharpe Ratio: {{printf "%.2f" .WeekMetrics.SharpeRatio}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 *STRATEGY BREAKDOWN*
+
+Longs: {{.WeekMetrics.LongCount}} ({{printf "%.0f" (div (mul (float .WeekMetrics.LongCount) 100) (float .WeekMetrics.ExecutedTrades))}}%)
+Shorts: {{.WeekMetrics.ShortCount}} ({{printf "%.0f" (div (mul (float .WeekMetrics.ShortCount) 100) (float .WeekMetrics.ExecutedTrades))}}%)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📅 *DAILY BREAKDOWN*
+
+{{range .DailyReports}}
+{{.Date.Format "Mon Jan 2"}}: {{.Metrics.ExecutedTrades}} trades, PnL ${{printf "%.2f" .Metrics.TotalPnL}}
+{{end}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏰ Generated: {{.GeneratedAt.Format "2006-01-02 15:04:05"}}
+

@@ -55,4 +55,3 @@ type AgentSymbolAssignment struct {
 	IsActive      bool            `json:"is_active" db:"is_active"`
 	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 }
-

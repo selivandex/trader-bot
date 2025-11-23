@@ -2,6 +2,7 @@ package toolkit
 
 import (
 	"context"
+	"time"
 
 	"github.com/selivandex/trader-bot/pkg/models"
 )
@@ -17,6 +18,10 @@ type AgentRepository interface {
 	GetExchangeFlows(ctx context.Context, symbol string, hours int) ([]models.ExchangeFlow, error)
 	GetPeakEquity(ctx context.Context, agentID, symbol string) (float64, error)
 	GetAgentPerformanceMetrics(ctx context.Context, agentID string, symbol string) (*AgentPerformanceMetrics, error)
+
+	// Report methods
+	GetDecisionsInPeriod(ctx context.Context, agentID, symbol string, start, end time.Time) ([]models.AgentDecision, error)
+	GetInsightsInPeriod(ctx context.Context, agentID string, start, end time.Time) ([]string, error)
 }
 
 // AgentPerformanceMetrics holds performance statistics

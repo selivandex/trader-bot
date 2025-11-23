@@ -283,10 +283,30 @@ func (r *Repository) SaveDecision(ctx context.Context, decision *models.AgentDec
 		INSERT INTO agent_decisions (
 			agent_id, symbol, action, confidence, reason,
 			technical_score, news_score, onchain_score, sentiment_score, final_score,
-			market_data, executed, execution_price, execution_size
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			market_data, executed, execution_price, execution_size,
+			order_id, stop_loss_order_id, take_profit_order_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id, created_at
+		ON CONFLICT (id) DO UPDATE SET
+			executed = EXCLUDED.executed,
+			execution_price = EXCLUDED.execution_price,
+			execution_size = EXCLUDED.execution_size,
+			order_id = EXCLUDED.order_id,
+			stop_loss_order_id = EXCLUDED.stop_loss_order_id,
+			take_profit_order_id = EXCLUDED.take_profit_order_id
 	`
+
+	// Handle NULL for order IDs
+	var orderID, slOrderID, tpOrderID interface{}
+	if decision.OrderID != "" {
+		orderID = decision.OrderID
+	}
+	if decision.StopLossOrderID != "" {
+		slOrderID = decision.StopLossOrderID
+	}
+	if decision.TakeProfitOrderID != "" {
+		tpOrderID = decision.TakeProfitOrderID
+	}
 
 	err := r.db.QueryRowContext(
 		ctx, query,
@@ -304,6 +324,9 @@ func (r *Repository) SaveDecision(ctx context.Context, decision *models.AgentDec
 		decision.Executed,
 		decision.ExecutionPrice,
 		decision.ExecutionSize,
+		orderID,
+		slOrderID,
+		tpOrderID,
 	).Scan(&decision.ID, &decision.CreatedAt)
 
 	if err != nil {

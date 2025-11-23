@@ -28,16 +28,16 @@ func (efa *ExchangeFlowAggregator) Start(ctx context.Context) error {
 	logger.Info("exchange flow aggregator starting",
 		zap.Duration("interval", efa.interval),
 	)
-	
+
 	ticker := time.NewTicker(efa.interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("exchange flow aggregator stopped")
 			return ctx.Err()
-			
+
 		case <-ticker.C:
 			efa.aggregate(ctx)
 		}
@@ -60,4 +60,3 @@ func (efa *ExchangeFlowAggregator) aggregate(ctx context.Context) {
 		zap.Time("timestamp", timestamp),
 	)
 }
-

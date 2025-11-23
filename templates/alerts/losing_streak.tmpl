@@ -1,0 +1,19 @@
+🛑 CIRCUIT BREAKER: LOSING STREAK
+
+Consecutive Losses: {{.StreakCount}}
+Recent Trades:
+{{range .RecentTrades}}
+- {{.Side}} {{.Symbol}}: {{printf "%.2f" .PnL}}% ({{.Reason}})
+{{end}}
+
+Current Win Rate: {{printf "%.1f" .WinRate}}%
+Avg Loss: ${{printf "%.2f" .AvgLoss}}
+
+🚨 Circuit breaker triggered!
+
+Recommendation:
+1. Pause trading for 24h
+2. Review strategy weights
+3. Check if market regime changed
+4. Run self-analysis
+

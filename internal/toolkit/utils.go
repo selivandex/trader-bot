@@ -60,4 +60,3 @@ func truncateAddress(addr string) string {
 	}
 	return addr[:6] + "..." + addr[len(addr)-4:]
 }
-

@@ -22,21 +22,21 @@ func NewDailyMetricsWorker(repo *Repository) *DailyMetricsWorker {
 // Start starts the daily metrics worker
 func (dmw *DailyMetricsWorker) Start(ctx context.Context) error {
 	logger.Info("daily metrics worker starting")
-	
+
 	// Calculate immediately for yesterday
 	yesterday := time.Now().AddDate(0, 0, -1)
 	dmw.calculateForAllUsers(ctx, yesterday)
-	
+
 	// Then run daily at midnight
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("daily metrics worker stopped")
 			return ctx.Err()
-			
+
 		case <-ticker.C:
 			yesterday := time.Now().AddDate(0, 0, -1)
 			dmw.calculateForAllUsers(ctx, yesterday)
@@ -79,4 +79,3 @@ func (dmw *DailyMetricsWorker) calculateForAllUsers(ctx context.Context, date ti
 func (dmw *DailyMetricsWorker) calculateForUser(ctx context.Context, userID int64, date time.Time) error {
 	return dmw.repo.CalculateDailyMetrics(ctx, userID, date)
 }
-
