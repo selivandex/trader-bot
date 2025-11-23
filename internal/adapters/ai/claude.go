@@ -20,10 +20,10 @@ const claudeAPIURL = "https://api.anthropic.com/v1/messages"
 
 // ClaudeProvider implements AI provider for Claude
 type ClaudeProvider struct {
-	apiKey         string
-	enabled        bool
 	client         *http.Client
 	strategyParams *models.StrategyParameters
+	apiKey         string
+	enabled        bool
 }
 
 // NewClaudeProvider creates new Claude provider
@@ -211,7 +211,7 @@ func (c *ClaudeProvider) EvaluateNewsBatch(ctx context.Context, newsItems []*mod
 	systemPrompt, userPrompt := buildNewsBatchPromptsFromTemplate(newsItems)
 	responseText, err := c.callClaudeAPI(ctx, systemPrompt, userPrompt, 2000)
 	if err != nil {
-		return fmt.Errorf("Claude API call failed: %w", err)
+		return fmt.Errorf("claude API call failed: %w", err)
 	}
 
 	// Parse and apply evaluations (common logic)
@@ -345,7 +345,7 @@ func (c *ClaudeProvider) SummarizeMemory(ctx context.Context, experience *models
 // ValidateDecision validates trading decision from validator perspective
 func (c *ClaudeProvider) ValidateDecision(ctx context.Context, request *models.ValidationRequest) (*models.ValidationResponse, error) {
 	if !c.enabled {
-		return nil, fmt.Errorf("Claude provider is not enabled")
+		return nil, fmt.Errorf("claude provider is not enabled")
 	}
 
 	// Use pre-built prompts from request (built by ValidatorCouncil from templates)

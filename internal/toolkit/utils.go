@@ -24,13 +24,6 @@ func minFloat(a, b float64) float64 {
 }
 
 // maxFloat returns maximum of two floats
-func maxFloat(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // truncate cuts string to max length
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {

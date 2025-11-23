@@ -18,28 +18,28 @@ type ReflectionPrompt struct {
 
 // TradeExperience represents complete trade experience for reflection
 type TradeExperience struct {
+	SignalsUsed   map[string]float64 `json:"signals_used"`
 	Symbol        string             `json:"symbol"`
-	Side          string             `json:"side"` // "long" or "short"
+	Side          string             `json:"side"`
 	EntryPrice    decimal.Decimal    `json:"entry_price"`
 	ExitPrice     decimal.Decimal    `json:"exit_price"`
 	Size          decimal.Decimal    `json:"size"`
 	PnL           decimal.Decimal    `json:"pnl"`
-	PnLPercent    float64            `json:"pnl_percent"`
-	Duration      time.Duration      `json:"duration"`
 	EntryReason   string             `json:"entry_reason"`
 	ExitReason    string             `json:"exit_reason"`
-	SignalsUsed   map[string]float64 `json:"signals_used"` // "technical": 85, "news": 60
+	PnLPercent    float64            `json:"pnl_percent"`
+	Duration      time.Duration      `json:"duration"`
 	WasSuccessful bool               `json:"was_successful"`
 }
 
 // Reflection contains agent's self-analysis after trade
 type Reflection struct {
+	SuggestedAdjustments map[string]float64 `json:"suggested_adjustments"`
+	MemoryToStore        *MemorySummary     `json:"memory_to_store"`
 	Analysis             string             `json:"analysis"`
 	WhatWorked           []string           `json:"what_worked"`
 	WhatDidntWork        []string           `json:"what_didnt_work"`
 	KeyLessons           []string           `json:"key_lessons"`
-	SuggestedAdjustments map[string]float64 `json:"suggested_adjustments"` // "news_weight": -0.05
-	MemoryToStore        *MemorySummary     `json:"memory_to_store"`
 	ConfidenceInAnalysis float64            `json:"confidence_in_analysis"`
 }
 
@@ -47,17 +47,17 @@ type Reflection struct {
 
 // SemanticMemory represents agent's semantic memory (episodic knowledge)
 type SemanticMemory struct {
-	ID           string    `json:"id" db:"id"`
-	AgentID      string    `json:"agent_id" db:"agent_id"`
-	Context      string    `json:"context" db:"context"`           // "BTC dropped 5% on ETF rejection"
-	Action       string    `json:"action" db:"action"`             // "Went short at $42k"
-	Outcome      string    `json:"outcome" db:"outcome"`           // "Profit +3.2%, good call"
-	Lesson       string    `json:"lesson" db:"lesson"`             // "News-driven drops = short opportunities"
-	Embedding    []float32 `json:"embedding" db:"embedding"`       // Vector embedding for similarity search
-	Importance   float64   `json:"importance" db:"importance"`     // 0.0 - 1.0
-	AccessCount  int       `json:"access_count" db:"access_count"` // How often recalled
 	LastAccessed time.Time `json:"last_accessed" db:"last_accessed"`
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	ID           string    `json:"id" db:"id"`
+	AgentID      string    `json:"agent_id" db:"agent_id"`
+	Context      string    `json:"context" db:"context"`
+	Action       string    `json:"action" db:"action"`
+	Outcome      string    `json:"outcome" db:"outcome"`
+	Lesson       string    `json:"lesson" db:"lesson"`
+	Embedding    []float32 `json:"embedding" db:"embedding"`
+	Importance   float64   `json:"importance" db:"importance"`
+	AccessCount  int       `json:"access_count" db:"access_count"`
 }
 
 // MemorySummary is what agent decides to remember
@@ -73,43 +73,43 @@ type MemorySummary struct {
 
 // PlanRequest contains information for creating trading plan
 type PlanRequest struct {
-	AgentName       string           `json:"agent_name"`
 	MarketData      *MarketData      `json:"market_data"`
 	CurrentPosition *Position        `json:"current_position"`
-	TimeHorizon     time.Duration    `json:"time_horizon"` // "24h", "3d", etc
+	AgentName       string           `json:"agent_name"`
+	Memories        []SemanticMemory `json:"memories"`
+	TimeHorizon     time.Duration    `json:"time_horizon"`
 	RiskTolerance   float64          `json:"risk_tolerance"`
-	Memories        []SemanticMemory `json:"memories"` // Relevant past experiences
 }
 
 // TradingPlan represents agent's multi-step plan
 type TradingPlan struct {
-	PlanID         string          `json:"plan_id"`
-	AgentID        string          `json:"agent_id"`
-	TimeHorizon    time.Duration   `json:"time_horizon"`
-	Assumptions    []string        `json:"assumptions"` // "BTC will range between $42k-$45k"
-	Scenarios      []Scenario      `json:"scenarios"`   // Different market scenarios
-	RiskLimits     RiskLimits      `json:"risk_limits"`
-	TriggerSignals []TriggerSignal `json:"trigger_signals"` // When to revise plan
 	CreatedAt      time.Time       `json:"created_at"`
 	ExpiresAt      time.Time       `json:"expires_at"`
-	Status         string          `json:"status"` // "active", "executed", "cancelled"
+	PlanID         string          `json:"plan_id"`
+	AgentID        string          `json:"agent_id"`
+	Status         string          `json:"status"`
+	Assumptions    []string        `json:"assumptions"`
+	Scenarios      []Scenario      `json:"scenarios"`
+	TriggerSignals []TriggerSignal `json:"trigger_signals"`
+	RiskLimits     RiskLimits      `json:"risk_limits"`
+	TimeHorizon    time.Duration   `json:"time_horizon"`
 }
 
 // Scenario represents one possible market scenario and response
 type Scenario struct {
-	Name        string   `json:"name"`        // "BTC breaks above $45k"
-	Probability float64  `json:"probability"` // 0.3 = 30% chance
-	Indicators  []string `json:"indicators"`  // What signals this scenario
-	Action      string   `json:"action"`      // "Go long with 3x leverage"
+	Name        string   `json:"name"`
+	Action      string   `json:"action"`
 	Reasoning   string   `json:"reasoning"`
+	Indicators  []string `json:"indicators"`
+	Probability float64  `json:"probability"`
 }
 
 // RiskLimits defines plan's risk boundaries
 type RiskLimits struct {
-	MaxDrawdown     float64 `json:"max_drawdown"`      // 5% max drawdown
-	MaxDailyLoss    float64 `json:"max_daily_loss"`    // $100 max loss per day
-	MaxPositionSize float64 `json:"max_position_size"` // 30% of balance
-	StopTradingIf   string  `json:"stop_trading_if"`   // "3 consecutive losses"
+	StopTradingIf   string  `json:"stop_trading_if"`
+	MaxDrawdown     float64 `json:"max_drawdown"`
+	MaxDailyLoss    float64 `json:"max_daily_loss"`
+	MaxPositionSize float64 `json:"max_position_size"`
 }
 
 // TriggerSignal defines when plan should be revised
@@ -124,64 +124,64 @@ type TriggerSignal struct {
 type TradingSituation struct {
 	MarketData      *MarketData      `json:"market_data"`
 	CurrentPosition *Position        `json:"current_position"`
-	RecentTrades    []Trade          `json:"recent_trades"`
-	Balance         decimal.Decimal  `json:"balance"`
-	Memories        []SemanticMemory `json:"memories"` // Relevant memories
 	CurrentPlan     *TradingPlan     `json:"current_plan,omitempty"`
+	Balance         decimal.Decimal  `json:"balance"`
+	RecentTrades    []Trade          `json:"recent_trades"`
+	Memories        []SemanticMemory `json:"memories"`
 }
 
 // TradingOption represents one possible action agent could take
 type TradingOption struct {
 	OptionID        string           `json:"option_id"`
-	Action          AIAction         `json:"action"`      // OPEN_LONG, OPEN_SHORT, HOLD, CLOSE
-	Description     string           `json:"description"` // "Go long with 2x leverage targeting $45k"
+	Action          AIAction         `json:"action"`
+	Description     string           `json:"description"`
+	Reasoning       string           `json:"reasoning"`
+	ExpectedOutcome string           `json:"expected_outcome"`
+	EstimatedRisk   string           `json:"estimated_risk"`
+	Timeframe       string           `json:"timeframe"`
 	Parameters      OptionParameters `json:"parameters"`
-	Reasoning       string           `json:"reasoning"`        // Why this option exists
-	ExpectedOutcome string           `json:"expected_outcome"` // Expected result
-	EstimatedRisk   string           `json:"estimated_risk"`   // Risk level: Low/Medium/High
-	Timeframe       string           `json:"timeframe"`        // Expected holding period
 }
 
 // OptionParameters contains trade parameters for option
 type OptionParameters struct {
 	Size       decimal.Decimal `json:"size"`
-	Leverage   int             `json:"leverage"`
 	EntryPrice decimal.Decimal `json:"entry_price,omitempty"`
 	StopLoss   decimal.Decimal `json:"stop_loss,omitempty"`
 	TakeProfit decimal.Decimal `json:"take_profit,omitempty"`
+	Leverage   int             `json:"leverage"`
 }
 
 // OptionEvaluation contains agent's analysis of one option
 type OptionEvaluation struct {
 	OptionID        string   `json:"option_id"`
-	Score           float64  `json:"score"` // 0-100
+	ExpectedOutcome string   `json:"expected_outcome"`
+	Reasoning       string   `json:"reasoning"`
 	Pros            []string `json:"pros"`
 	Cons            []string `json:"cons"`
 	Risks           []string `json:"risks"`
 	Opportunities   []string `json:"opportunities"`
-	ExpectedOutcome string   `json:"expected_outcome"` // "Likely +2-3% over 6h"
-	Confidence      float64  `json:"confidence"`       // 0.0 - 1.0
-	ConfidenceScore int      `json:"confidence_score"` // 0-100 for validator compatibility
-	Reasoning       string   `json:"reasoning"`        // Detailed analysis
+	Score           float64  `json:"score"`
+	Confidence      float64  `json:"confidence"`
+	ConfidenceScore int      `json:"confidence_score"`
 }
 
 // ========== Self-Analysis Models ==========
 
 // PerformanceData contains agent's recent performance stats
 type PerformanceData struct {
-	AgentID           string                       `json:"agent_id"`
+	SignalPerformance map[string]SignalPerformance `json:"signal_performance"`
 	AgentName         string                       `json:"agent_name"`
-	TimeWindow        time.Duration                `json:"time_window"` // Last 7 days, 30 days, etc
-	TotalTrades       int                          `json:"total_trades"`
-	WinRate           float64                      `json:"win_rate"`
+	AgentID           string                       `json:"agent_id"`
 	AvgPnL            decimal.Decimal              `json:"avg_pnl"`
 	TotalPnL          decimal.Decimal              `json:"total_pnl"`
 	MaxWin            decimal.Decimal              `json:"max_win"`
 	MaxLoss           decimal.Decimal              `json:"max_loss"`
-	CurrentDrawdown   float64                      `json:"current_drawdown"`
-	SignalPerformance map[string]SignalPerformance `json:"signal_performance"`
 	RecentTrades      []TradeExperience            `json:"recent_trades"`
 	CurrentWeights    AgentSpecialization          `json:"current_weights"`
+	TotalTrades       int                          `json:"total_trades"`
+	CurrentDrawdown   float64                      `json:"current_drawdown"`
+	WinRate           float64                      `json:"win_rate"`
+	TimeWindow        time.Duration                `json:"time_window"`
 }
 
 // SignalPerformance tracks performance of specific signal type
@@ -195,23 +195,23 @@ type SignalPerformance struct {
 
 // SelfAnalysis contains agent's self-evaluation and adaptation suggestions
 type SelfAnalysis struct {
+	SuggestedChanges      SuggestedStrategyChanges `json:"suggested_changes"`
 	PerformanceAssessment string                   `json:"performance_assessment"`
+	ReasoningTrace        string                   `json:"reasoning_trace"`
 	StrengthsIdentified   []string                 `json:"strengths_identified"`
 	WeaknessesIdentified  []string                 `json:"weaknesses_identified"`
-	RootCauses            []string                 `json:"root_causes"` // Why weaknesses exist
-	SuggestedChanges      SuggestedStrategyChanges `json:"suggested_changes"`
-	Confidence            float64                  `json:"confidence"` // How confident in this analysis
-	ReasoningTrace        string                   `json:"reasoning_trace"`
+	RootCauses            []string                 `json:"root_causes"`
+	Confidence            float64                  `json:"confidence"`
 }
 
 // SuggestedStrategyChanges contains agent's self-modification suggestions
 type SuggestedStrategyChanges struct {
 	NewWeights           *AgentSpecialization `json:"new_weights,omitempty"`
-	ParameterAdjustments map[string]float64   `json:"parameter_adjustments"` // "stop_loss": 2.5
-	BehavioralChanges    []string             `json:"behavioral_changes"`    // "Be more patient with entries"
+	ParameterAdjustments map[string]float64   `json:"parameter_adjustments"`
+	Reasoning            string               `json:"reasoning"`
+	BehavioralChanges    []string             `json:"behavioral_changes"`
 	SignalsToEmphasize   []string             `json:"signals_to_emphasize"`
 	SignalsToDeemphasize []string             `json:"signals_to_deemphasize"`
-	Reasoning            string               `json:"reasoning"`
 }
 
 // ========== Reasoning Trace ==========
@@ -226,12 +226,12 @@ type AgentThought struct {
 
 // ReasoningSession captures complete agent reasoning for one decision
 type ReasoningSession struct {
-	SessionID   string         `json:"session_id"`
-	AgentID     string         `json:"agent_id"`
 	StartedAt   time.Time      `json:"started_at"`
 	CompletedAt time.Time      `json:"completed_at"`
-	Thoughts    []AgentThought `json:"thoughts"`
 	Decision    *AIDecision    `json:"decision"`
+	SessionID   string         `json:"session_id"`
+	AgentID     string         `json:"agent_id"`
+	Thoughts    []AgentThought `json:"thoughts"`
 	Executed    bool           `json:"executed"`
 }
 
@@ -239,6 +239,8 @@ type ReasoningSession struct {
 
 // CollectiveMemory represents shared wisdom across agents of same personality
 type CollectiveMemory struct {
+	LastConfirmedAt   time.Time `json:"last_confirmed_at" db:"last_confirmed_at"`
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	ID                string    `json:"id" db:"id"`
 	Personality       string    `json:"personality" db:"personality"`
 	Context           string    `json:"context" db:"context"`
@@ -248,44 +250,42 @@ type CollectiveMemory struct {
 	Importance        float64   `json:"importance" db:"importance"`
 	ConfirmationCount int       `json:"confirmation_count" db:"confirmation_count"`
 	SuccessRate       float64   `json:"success_rate" db:"success_rate"`
-	LastConfirmedAt   time.Time `json:"last_confirmed_at" db:"last_confirmed_at"`
-	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 }
 
 // MemoryConfirmation tracks agent's validation of collective memory
 type MemoryConfirmation struct {
+	ConfirmedAt        time.Time       `json:"confirmed_at" db:"confirmed_at"`
 	ID                 string          `json:"id" db:"id"`
 	CollectiveMemoryID string          `json:"collective_memory_id" db:"collective_memory_id"`
 	AgentID            string          `json:"agent_id" db:"agent_id"`
-	WasSuccessful      bool            `json:"was_successful" db:"was_successful"`
-	TradeCount         int             `json:"trade_count" db:"trade_count"`
 	PnLSum             decimal.Decimal `json:"pnl_sum" db:"pnl_sum"`
-	ConfirmedAt        time.Time       `json:"confirmed_at" db:"confirmed_at"`
+	TradeCount         int             `json:"trade_count" db:"trade_count"`
+	WasSuccessful      bool            `json:"was_successful" db:"was_successful"`
 }
 
 // ========== Validator Council Models ==========
 
 // ValidationRequest contains all data for validator to review agent's decision
 type ValidationRequest struct {
-	ValidatorRole     string               `json:"validator_role"` // "risk_manager", "technical_expert", "market_psychologist"
-	SystemPrompt      string               `json:"system_prompt"`  // Pre-built system prompt
-	UserPrompt        string               `json:"user_prompt"`    // Pre-built user prompt
 	AgentDecision     *AgentDecision       `json:"agent_decision"`
 	AgentProfile      *AgentConfig         `json:"agent_profile"`
 	MarketData        *MarketData          `json:"market_data"`
 	CurrentPosition   *Position            `json:"current_position,omitempty"`
 	RecentPerformance *PerformanceSnapshot `json:"recent_performance,omitempty"`
+	ValidatorRole     string               `json:"validator_role"`
+	SystemPrompt      string               `json:"system_prompt"`
+	UserPrompt        string               `json:"user_prompt"`
 }
 
 // ValidationResponse is validator's verdict on the decision
 type ValidationResponse struct {
-	Verdict            string   `json:"verdict"`    // "APPROVE", "REJECT", "ABSTAIN"
-	Confidence         int      `json:"confidence"` // 0-100
+	Verdict            string   `json:"verdict"`
 	Reasoning          string   `json:"reasoning"`
+	RecommendedChanges string   `json:"recommended_changes,omitempty"`
+	CriticalConcerns   string   `json:"critical_concerns,omitempty"`
 	KeyRisks           []string `json:"key_risks"`
 	KeyOpportunities   []string `json:"key_opportunities,omitempty"`
-	RecommendedChanges string   `json:"recommended_changes,omitempty"` // If rejected, what to change
-	CriticalConcerns   string   `json:"critical_concerns,omitempty"`   // Red flags
+	Confidence         int      `json:"confidence"`
 }
 
 // PerformanceSnapshot contains recent agent performance for validator context

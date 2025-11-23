@@ -17,29 +17,29 @@ import (
 
 // Server provides health check HTTP endpoints for K8s
 type Server struct {
+	startTime    time.Time
 	server       *http.Server
 	db           *database.DB
 	redis        *redisAdapter.Client
 	agentManager *agents.AgenticManager
-	ready        bool
 	readyMu      sync.RWMutex
-	startTime    time.Time
+	ready        bool
 }
 
 // HealthStatus represents system health
 type HealthStatus struct {
+	Checks    map[string]string `json:"checks,omitempty"`
 	Status    string            `json:"status"`
 	Timestamp string            `json:"timestamp"`
 	Uptime    string            `json:"uptime"`
-	Checks    map[string]string `json:"checks,omitempty"`
 }
 
 // ReadinessStatus represents system readiness
 type ReadinessStatus struct {
-	Ready     bool              `json:"ready"`
-	Timestamp string            `json:"timestamp"`
 	Checks    map[string]string `json:"checks"`
+	Timestamp string            `json:"timestamp"`
 	Agents    AgentsStatus      `json:"agents"`
+	Ready     bool              `json:"ready"`
 }
 
 // AgentsStatus shows agent stats
@@ -145,7 +145,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		logger.Error("failed to encode health status", zap.Error(err))
+	}
 }
 
 // handleReadiness handles readiness probe - /ready
@@ -201,5 +203,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 
-	json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		logger.Error("failed to encode readiness status", zap.Error(err))
+	}
 }

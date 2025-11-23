@@ -100,7 +100,7 @@ func (dl *DistributedLock) renewLock(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug("lock renewal stopped (context cancelled)",
+			logger.Debug("lock renewal stopped (context canceled)",
 				zap.String("agent_id", dl.agentID),
 			)
 			return

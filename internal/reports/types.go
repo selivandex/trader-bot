@@ -8,37 +8,37 @@ import (
 
 // DailyReport contains comprehensive daily trading report
 type DailyReport struct {
+	Period      Period
+	Date        time.Time
+	GeneratedAt time.Time
+	Metrics     *DayMetrics
+	State       *models.AgentState
 	AgentID     string
 	AgentName   string
 	Symbol      string
-	Date        time.Time
-	Period      Period
-	Metrics     *DayMetrics
 	Decisions   []models.AgentDecision
 	Insights    []string
-	State       *models.AgentState
-	GeneratedAt time.Time
 }
 
 // WeeklyReport contains weekly summary
 type WeeklyReport struct {
-	AgentID      string
-	Symbol       string
 	WeekStart    time.Time
 	WeekEnd      time.Time
-	DailyReports []*DailyReport
-	WeekMetrics  *WeekMetrics
 	GeneratedAt  time.Time
+	WeekMetrics  *WeekMetrics
+	AgentID      string
+	Symbol       string
+	DailyReports []*DailyReport
 }
 
 // CustomReport for arbitrary time period
 type CustomReport struct {
+	Period      Period
+	GeneratedAt time.Time
+	Metrics     *PeriodMetrics
 	AgentID     string
 	Symbol      string
-	Period      Period
-	Metrics     *PeriodMetrics
 	Decisions   []models.AgentDecision
-	GeneratedAt time.Time
 }
 
 // Period represents time range
@@ -109,13 +109,12 @@ const (
 
 // ReportRequest contains parameters for report generation
 type ReportRequest struct {
-	AgentID string
-	Symbol  string
-	Period  ReportPeriod
-	Format  ReportFormat
-	// For custom period
 	StartDate *time.Time
 	EndDate   *time.Time
+	AgentID   string
+	Symbol    string
+	Period    ReportPeriod
+	Format    ReportFormat
 }
 
 // ReportPeriod specifies time period for report

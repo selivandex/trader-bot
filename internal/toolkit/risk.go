@@ -72,7 +72,7 @@ func (t *LocalToolkit) CalculatePositionRisk(ctx context.Context, symbol string,
 
 	// Estimate probability from historical data
 	memory, _ := t.agentRepo.GetAgentStatisticalMemory(ctx, t.agentID)
-	var probabilityProfit float64 = 0.5 // Default
+	var probabilityProfit = 0.5 // Default
 	if memory != nil {
 		// Use average success rate as probability
 		probabilityProfit = (memory.TechnicalSuccessRate + memory.NewsSuccessRate +
@@ -226,23 +226,23 @@ func calculateRiskScore(riskPercent, leverage, rrRatio float64) int {
 	if riskPercent > 5 {
 		score += 2
 	} else if riskPercent > 3 {
-		score += 1
+		score++
 	} else if riskPercent < 1 {
-		score -= 1
+		score--
 	}
 
 	// Higher leverage = higher score
 	if leverage >= 5 {
 		score += 2
 	} else if leverage >= 3 {
-		score += 1
+		score++
 	}
 
 	// Lower R:R = higher score
 	if rrRatio < 1.5 {
 		score += 2
 	} else if rrRatio > 3 {
-		score -= 1
+		score--
 	}
 
 	// Clamp to 1-10

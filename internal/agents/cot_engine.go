@@ -35,17 +35,17 @@ func (cot *AdaptiveCoTEngine) Close() error {
 
 // ThinkingState represents agent's current understanding during reasoning
 type ThinkingState struct {
-	Observation      string
+	StartTime        time.Time
 	MarketData       *models.MarketData
 	CurrentPosition  *models.Position
+	ToolResults      map[string]interface{}
+	Observation      string
 	RecalledMemories []models.SemanticMemory
-	ToolResults      map[string]interface{} // Tool name -> result
 	Questions        []QuestionAnswer
 	Options          []models.TradingOption
 	Evaluations      []models.OptionEvaluation
 	Insights         []string
 	Concerns         []string
-	StartTime        time.Time
 	IterationCount   int
 }
 
@@ -58,18 +58,18 @@ type QuestionAnswer struct {
 
 // ThoughtStep represents one iteration of thinking
 type ThoughtStep struct {
-	Iteration      int                    `json:"iteration"`
 	Timestamp      time.Time              `json:"timestamp"`
-	Action         string                 `json:"action"` // "use_tool", "ask_question", "generate_options", "evaluate_option", "decide", "reconsider"
-	Reasoning      string                 `json:"reasoning"`
-	Confidence     float64                `json:"confidence"`
-	ToolName       string                 `json:"tool_name,omitempty"`
-	ToolParams     map[string]interface{} `json:"tool_params,omitempty"`
 	ToolResult     interface{}            `json:"tool_result,omitempty"`
+	ToolParams     map[string]interface{} `json:"tool_params,omitempty"`
+	Decision       *models.AIDecision     `json:"decision,omitempty"`
+	Action         string                 `json:"action"`
+	Reasoning      string                 `json:"reasoning"`
+	ToolName       string                 `json:"tool_name,omitempty"`
 	Question       string                 `json:"question,omitempty"`
 	Answer         string                 `json:"answer,omitempty"`
-	Decision       *models.AIDecision     `json:"decision,omitempty"`
 	ReconsiderWhat string                 `json:"reconsider_what,omitempty"`
+	Iteration      int                    `json:"iteration"`
+	Confidence     float64                `json:"confidence"`
 }
 
 // NewAdaptiveCoTEngine creates new adaptive CoT engine
@@ -92,7 +92,7 @@ func NewAdaptiveCoTEngine(
 func (cot *AdaptiveCoTEngine) SetToolkit(tk toolkit.AgentToolkit) {
 	cot.toolkit = tk
 	cot.toolRegistry = toolkit.NewToolRegistry(tk)
-	
+
 	// Set metrics logger from toolkit if available (for ClickHouse batching)
 	if localToolkit, ok := tk.(*toolkit.LocalToolkit); ok {
 		if metricsLogger := localToolkit.GetMetricsLogger(); metricsLogger != nil {
@@ -283,7 +283,6 @@ func (cot *AdaptiveCoTEngine) decideNextStep(
 	state *ThinkingState,
 	history []ThoughtStep,
 ) (*ThoughtStep, error) {
-
 	// Build adaptive prompt from template
 	systemPrompt, userPrompt := cot.buildAdaptivePrompt(state, history)
 
@@ -321,7 +320,6 @@ func (cot *AdaptiveCoTEngine) executeAction(
 	step *ThoughtStep,
 	state *ThinkingState,
 ) (bool, error) {
-
 	switch step.Action {
 	case "use_tool":
 		// Agent decided to use a tool
@@ -420,7 +418,9 @@ func (cot *AdaptiveCoTEngine) executeAction(
 			if step.Confidence < 0.3 {
 				priority = "HIGH" // Low confidence = uncertainty = urgent
 			}
-			cot.toolkit.SendUrgentAlert(ctx, step.Reasoning, priority)
+			if err := cot.toolkit.SendUrgentAlert(ctx, step.Reasoning, priority); err != nil {
+				logger.Error("failed to send urgent alert", zap.Error(err))
+			}
 		}
 
 		return true, nil // Continue thinking
@@ -429,7 +429,9 @@ func (cot *AdaptiveCoTEngine) executeAction(
 		// Agent wants to log an insight
 		state.Insights = append(state.Insights, step.Reasoning)
 		if cot.toolkit != nil {
-			cot.toolkit.LogThought(ctx, step.Reasoning, step.Confidence)
+			if err := cot.toolkit.LogThought(ctx, step.Reasoning, step.Confidence); err != nil {
+				logger.Error("failed to log thought", zap.Error(err))
+			}
 		}
 
 		return true, nil
@@ -461,7 +463,6 @@ func (cot *AdaptiveCoTEngine) executeToolCall(
 	toolName string,
 	params map[string]interface{},
 ) (interface{}, error) {
-
 	if cot.toolRegistry == nil {
 		return nil, fmt.Errorf("tool registry not initialized")
 	}

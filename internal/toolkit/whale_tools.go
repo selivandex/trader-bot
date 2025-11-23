@@ -235,27 +235,27 @@ func (t *LocalToolkit) CheckWhaleAlert(ctx context.Context, symbol string) (*Wha
 
 // WhaleAlertsSummary contains comprehensive whale activity analysis
 type WhaleAlertsSummary struct {
-	TotalTransactions int
-	InflowCount       int
-	OutflowCount      int
-	TransferCount     int
-	MegaWhaleCount    int // Transactions > $10M
-	TotalInflowUSD    float64
+	Sentiment         string
+	AlertLevel        string
 	TotalOutflowUSD   float64
-	NetFlowUSD        float64 // Positive = outflow (accumulation)
+	TransferCount     int
+	MegaWhaleCount    int
+	TotalInflowUSD    float64
+	TotalTransactions int
+	NetFlowUSD        float64
 	LargestInflowUSD  float64
 	LargestOutflowUSD float64
-	Sentiment         string // "bullish", "bearish", "neutral"
-	AlertLevel        string // "HIGH", "MEDIUM", "LOW"
+	OutflowCount      int
+	InflowCount       int
 	TimeWindow        time.Duration
 }
 
 // WhaleAlert represents urgent whale activity notification
 type WhaleAlert struct {
-	HasAlert   bool
-	Severity   string // "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"
-	Message    string
 	LargestTx  *models.WhaleTransaction
+	Severity   string
+	Message    string
+	Pattern    string
 	TotalCount int
-	Pattern    string // "accumulation", "distribution"
+	HasAlert   bool
 }

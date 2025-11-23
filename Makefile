@@ -48,8 +48,9 @@ help:
 	@echo "  make check              - Quick checks with native Go tools (recommended)"
 	@echo "  make lint-unused        - Check for unused code with go vet"
 	@echo "  make lint-all           - Full static analysis with native tools"
-	@echo "  make lint               - Run golangci-lint (may not work with Go 1.25+)"
-	@echo "  make lint-fix           - Run golangci-lint with autofix"
+	@echo "  make lint               - Run golangci-lint v2 (comprehensive linting)"
+	@echo "  make lint-fix           - Format code with golangci-lint v2 (gofmt + goimports)"
+	@echo "  make lint-new           - Lint only new/changed code (fast for CI)"
 	@echo ""
 	@echo "🧹 Cleanup:"
 	@echo "  make clean              - Remove build artifacts"
@@ -251,15 +252,25 @@ setup: db-setup
 fmt:
 	go fmt ./...
 
-# Lint code (when golangci-lint supports Go 1.25+)
+# Lint code with golangci-lint v2
 lint:
-	@echo "🔍 Running golangci-lint..."
-	@golangci-lint run ./... || echo "⚠️  golangci-lint may not support Go 1.25 yet"
+	@echo "🔍 Running golangci-lint v2..."
+	@golangci-lint run ./...
 
-# Lint with autofix
+# Format code with golangci-lint v2 formatters (replaces lint-fix in v2)
 lint-fix:
-	@echo "🔧 Running golangci-lint with autofix..."
-	@golangci-lint run --fix ./... || echo "⚠️  golangci-lint may not support Go 1.25 yet"
+	@echo "🔧 Formatting code with golangci-lint v2..."
+	@golangci-lint fmt ./...
+
+# Format code (alias for lint-fix)
+fmt-v2:
+	@echo "🔧 Formatting code with golangci-lint v2..."
+	@golangci-lint fmt ./...
+
+# Lint only new/changed code (fast, great for CI/pre-commit)
+lint-new:
+	@echo "🆕 Running golangci-lint v2 on new code only..."
+	@golangci-lint run --new ./...
 
 # Check for unused variables and code using native Go tools
 lint-unused:

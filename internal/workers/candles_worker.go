@@ -15,9 +15,9 @@ import (
 type CandlesWorker struct {
 	exchange     exchange.Exchange
 	candleWriter *clickhouse.CandleBatchWriter
-	interval     time.Duration
 	symbols      []string
 	timeframes   []string
+	interval     time.Duration
 }
 
 // NewCandlesWorker creates new candles worker
@@ -37,30 +37,16 @@ func NewCandlesWorker(
 	}
 }
 
-// Start starts the candles worker
-func (cw *CandlesWorker) Start(ctx context.Context) error {
-	logger.Info("candles worker starting",
-		zap.Duration("interval", cw.interval),
-		zap.Strings("symbols", cw.symbols),
-		zap.Strings("timeframes", cw.timeframes),
-	)
+// Name returns worker name
+func (cw *CandlesWorker) Name() string {
+	return "candles_poller"
+}
 
-	// Fetch immediately
+// Run executes one iteration - fetches candles and stores to batch writer
+// Called periodically by pkg/worker.PeriodicWorker
+func (cw *CandlesWorker) Run(ctx context.Context) error {
 	cw.fetchAndStore(ctx)
-
-	ticker := time.NewTicker(cw.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("candles worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			cw.fetchAndStore(ctx)
-		}
-	}
+	return nil
 }
 
 // fetchAndStore fetches candles and adds to batch writer

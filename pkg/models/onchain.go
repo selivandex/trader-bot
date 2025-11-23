@@ -8,71 +8,71 @@ import (
 
 // WhaleTransaction represents large blockchain movement
 type WhaleTransaction struct {
-	ID              string          `json:"id" db:"id"`
-	TxHash          string          `json:"tx_hash" db:"tx_hash"`
-	TransactionHash string          `json:"transaction_hash" db:"transaction_hash"` // Alias for TxHash
-	Blockchain      string          `json:"blockchain" db:"blockchain"`
-	Symbol          string          `json:"symbol" db:"symbol"`
+	Timestamp       time.Time       `json:"timestamp" db:"timestamp"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	DetectedAt      time.Time       `json:"detected_at" db:"detected_at"`
+	ToAddress       string          `json:"to_address" db:"to_address"`
+	ToOwner         string          `json:"to_owner" db:"to_owner"`
 	Amount          decimal.Decimal `json:"amount" db:"amount"`
 	AmountUSD       decimal.Decimal `json:"amount_usd" db:"amount_usd"`
 	FromAddress     string          `json:"from_address" db:"from_address"`
-	ToAddress       string          `json:"to_address" db:"to_address"`
-	FromOwner       string          `json:"from_owner" db:"from_owner"` // "binance", "unknown"
-	ToOwner         string          `json:"to_owner" db:"to_owner"`
+	ID              string          `json:"id" db:"id"`
+	FromOwner       string          `json:"from_owner" db:"from_owner"`
+	Symbol          string          `json:"symbol" db:"symbol"`
 	ExchangeName    string          `json:"exchange_name" db:"exchange_name"`
 	TransactionType string          `json:"transaction_type" db:"transaction_type"`
-	Timestamp       time.Time       `json:"timestamp" db:"timestamp"`
-	DetectedAt      time.Time       `json:"detected_at" db:"detected_at"`
+	Blockchain      string          `json:"blockchain" db:"blockchain"`
+	TransactionHash string          `json:"transaction_hash" db:"transaction_hash"`
+	TxHash          string          `json:"tx_hash" db:"tx_hash"`
 	ImpactScore     int             `json:"impact_score" db:"impact_score"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 }
 
 // ExchangeFlow represents exchange inflow/outflow
 type ExchangeFlow struct {
-	ID        int64           `json:"id" db:"id"`
+	Timestamp time.Time       `json:"timestamp" db:"timestamp"`
+	CreatedAt time.Time       `json:"created_at" db:"created_at"`
 	Exchange  string          `json:"exchange" db:"exchange"`
 	Symbol    string          `json:"symbol" db:"symbol"`
-	Timestamp time.Time       `json:"timestamp" db:"timestamp"`
 	Inflow    decimal.Decimal `json:"inflow" db:"inflow"`
 	Outflow   decimal.Decimal `json:"outflow" db:"outflow"`
 	NetFlow   decimal.Decimal `json:"net_flow" db:"net_flow"`
-	CreatedAt time.Time       `json:"created_at" db:"created_at"`
+	ID        int64           `json:"id" db:"id"`
 }
 
 // OnChainMetrics represents aggregated on-chain data
 type OnChainMetrics struct {
-	ID                    int64           `json:"id" db:"id"`
-	Symbol                string          `json:"symbol" db:"symbol"`
 	Timestamp             time.Time       `json:"timestamp" db:"timestamp"`
-	ActiveAddresses       int             `json:"active_addresses" db:"active_addresses"`
-	TransactionCount      int             `json:"transaction_count" db:"transaction_count"`
+	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
+	Symbol                string          `json:"symbol" db:"symbol"`
 	AverageTxValue        decimal.Decimal `json:"average_tx_value" db:"average_tx_value"`
-	LargeTxCount          int             `json:"large_tx_count" db:"large_tx_count"`
 	ExchangeReserve       decimal.Decimal `json:"exchange_reserve" db:"exchange_reserve"`
 	ExchangeReserveChange decimal.Decimal `json:"exchange_reserve_change" db:"exchange_reserve_change"`
-	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
+	ID                    int64           `json:"id" db:"id"`
+	ActiveAddresses       int             `json:"active_addresses" db:"active_addresses"`
+	TransactionCount      int             `json:"transaction_count" db:"transaction_count"`
+	LargeTxCount          int             `json:"large_tx_count" db:"large_tx_count"`
 }
 
 // OnChainSummary aggregates on-chain signals for AI
 type OnChainSummary struct {
+	UpdatedAt             time.Time          `json:"updated_at"`
+	Metrics               *OnChainMetrics    `json:"metrics,omitempty"`
 	Symbol                string             `json:"symbol"`
-	WhaleActivity         string             `json:"whale_activity"`          // high, medium, low
-	ExchangeFlowDirection string             `json:"exchange_flow_direction"` // inflow, outflow, balanced
+	WhaleActivity         string             `json:"whale_activity"`
+	ExchangeFlowDirection string             `json:"exchange_flow_direction"`
 	NetExchangeFlow       decimal.Decimal    `json:"net_exchange_flow"`
 	RecentWhaleMovements  []WhaleTransaction `json:"recent_whale_movements,omitempty"`
 	HighImpactAlerts      []OnChainAlert     `json:"high_impact_alerts,omitempty"`
-	Metrics               *OnChainMetrics    `json:"metrics,omitempty"`
-	UpdatedAt             time.Time          `json:"updated_at"`
 }
 
 // OnChainAlert represents significant on-chain event
 type OnChainAlert struct {
-	AlertType   string          `json:"alert_type"` // WHALE_MOVEMENT, EXCHANGE_INFLOW, etc
+	Timestamp   time.Time       `json:"timestamp"`
+	AlertType   string          `json:"alert_type"`
 	Symbol      string          `json:"symbol"`
 	Description string          `json:"description"`
-	Value       decimal.Decimal `json:"value"` // USD value
+	Value       decimal.Decimal `json:"value"`
 	ImpactScore int             `json:"impact_score"`
-	Timestamp   time.Time       `json:"timestamp"`
 }
 
 // GetWhaleActivityLevel returns activity level based on count and size

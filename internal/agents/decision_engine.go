@@ -385,9 +385,10 @@ func invertSignal(signal models.SignalScore) models.SignalScore {
 	inverted := signal
 	inverted.Score = 100 - signal.Score
 
-	if signal.Direction == "bullish" {
+	switch signal.Direction {
+	case "bullish":
 		inverted.Direction = "bearish"
-	} else if signal.Direction == "bearish" {
+	case "bearish":
 		inverted.Direction = "bullish"
 	}
 

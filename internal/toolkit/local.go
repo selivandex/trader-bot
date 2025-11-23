@@ -17,15 +17,15 @@ import (
 // LocalToolkit implements AgentToolkit using local database caches
 // All methods read from Postgres/ClickHouse, never call exchange APIs
 type LocalToolkit struct {
+	agentRepo     AgentRepository
+	memoryManager SemanticMemoryManager
+	notifier      Notifier
+	marketRepo    *market.Repository
+	newsCache     *news.Cache
+	metricsLogger *BatchedMetricsLogger
 	agentID       string
 	agentName     string
 	personality   string
-	marketRepo    *market.Repository
-	newsCache     *news.Cache
-	agentRepo     AgentRepository
-	memoryManager SemanticMemoryManager
-	notifier      Notifier              // For sending alerts to owner
-	metricsLogger *BatchedMetricsLogger // Batched metrics logger for ClickHouse
 }
 
 // NewLocalToolkit creates toolkit for agent

@@ -26,13 +26,13 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // BotState represents global bot state
 type BotState struct {
-	ID        int64     `db:"id"`
+	UpdatedAt time.Time `db:"updated_at"`
 	Mode      string    `db:"mode"`
 	Status    string    `db:"status"`
+	ID        int64     `db:"id"`
 	Balance   float64   `db:"balance"`
 	Equity    float64   `db:"equity"`
 	DailyPnL  float64   `db:"daily_pnl"`
-	UpdatedAt time.Time `db:"updated_at"`
 }
 
 // LoadBotState loads global bot state
@@ -87,15 +87,15 @@ func (r *Repository) SaveBotState(ctx context.Context, balance, equity, dailyPnL
 
 // UserState represents user-specific portfolio state
 type UserState struct {
-	ID         int64     `db:"id"`
-	UserID     int64     `db:"user_id"`
+	UpdatedAt  time.Time `db:"updated_at"`
 	Mode       string    `db:"mode"`
 	Status     string    `db:"status"`
+	ID         int64     `db:"id"`
+	UserID     int64     `db:"user_id"`
 	Balance    float64   `db:"balance"`
 	Equity     float64   `db:"equity"`
 	DailyPnL   float64   `db:"daily_pnl"`
 	PeakEquity float64   `db:"peak_equity"`
-	UpdatedAt  time.Time `db:"updated_at"`
 }
 
 // LoadUserState loads user-specific state

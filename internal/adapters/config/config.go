@@ -9,20 +9,19 @@ import (
 
 // Config represents application configuration
 type Config struct {
-	Mode TradingModeConfig `envconfig:""`
-
-	Exchanges  ExchangesConfig  `envconfig:"EXCHANGES"`
-	Trading    TradingConfig    `envconfig:"TRADING"`
-	AI         AIConfig         `envconfig:"AI"`
-	News       NewsConfig       `envconfig:"NEWS"`
-	OnChain    OnChainConfig    `envconfig:"ONCHAIN"`
-	Risk       RiskConfig       `envconfig:"RISK"`
-	Telegram   TelegramConfig   `envconfig:"TELEGRAM"`
-	Database   DatabaseConfig   `envconfig:"DATABASE"`
-	ClickHouse ClickHouseConfig `envconfig:"CLICKHOUSE"`
-	Redis      RedisConfig      `envconfig:"REDIS"`
-	Health     HealthConfig     `envconfig:"HEALTH"`
-	Logging    LoggingConfig    `envconfig:"LOGGING"`
+	Exchanges  ExchangesConfig   `envconfig:"EXCHANGES"`
+	Database   DatabaseConfig    `envconfig:"DATABASE"`
+	Logging    LoggingConfig     `envconfig:"LOGGING"`
+	Mode       TradingModeConfig `envconfig:""`
+	Health     HealthConfig      `envconfig:"HEALTH"`
+	OnChain    OnChainConfig     `envconfig:"ONCHAIN"`
+	News       NewsConfig        `envconfig:"NEWS"`
+	ClickHouse ClickHouseConfig  `envconfig:"CLICKHOUSE"`
+	Redis      RedisConfig       `envconfig:"REDIS"`
+	Telegram   TelegramConfig    `envconfig:"TELEGRAM"`
+	AI         AIConfig          `envconfig:"AI"`
+	Trading    TradingConfig     `envconfig:"TRADING"`
+	Risk       RiskConfig        `envconfig:"RISK"`
 }
 
 // TradingModeConfig represents trading mode
@@ -39,11 +38,11 @@ type ExchangesConfig struct {
 // ExchangeConfig represents single exchange configuration
 // NOTE: API keys are stored per-user in database (user_exchanges table), not here
 type ExchangeConfig struct {
-	DefaultTestnet    bool   `envconfig:"DEFAULT_TESTNET" default:"true"`       // Default testnet mode for new connections
-	TestnetURLPublic  string `envconfig:"TESTNET_URL_PUBLIC" required:"false"`  // Custom testnet public API URL
-	TestnetURLPrivate string `envconfig:"TESTNET_URL_PRIVATE" required:"false"` // Custom testnet private API URL
-	MainnetURLPublic  string `envconfig:"MAINNET_URL_PUBLIC" required:"false"`  // Custom mainnet public API URL
-	MainnetURLPrivate string `envconfig:"MAINNET_URL_PRIVATE" required:"false"` // Custom mainnet private API URL
+	TestnetURLPublic  string `envconfig:"TESTNET_URL_PUBLIC" required:"false"`
+	TestnetURLPrivate string `envconfig:"TESTNET_URL_PRIVATE" required:"false"`
+	MainnetURLPublic  string `envconfig:"MAINNET_URL_PUBLIC" required:"false"`
+	MainnetURLPrivate string `envconfig:"MAINNET_URL_PRIVATE" required:"false"`
+	DefaultTestnet    bool   `envconfig:"DEFAULT_TESTNET" default:"true"`
 }
 
 // GetAPIURLs returns API URLs configuration for CCXT based on testnet flag
@@ -115,26 +114,24 @@ type AIProviderConfig struct {
 
 // NewsConfig represents news aggregation configuration
 type NewsConfig struct {
-	Enabled           bool     `envconfig:"NEWS_ENABLED" default:"true"`
 	TwitterAPIKey     string   `envconfig:"TWITTER_API_KEY" required:"false"`
+	EvaluatorProvider string   `envconfig:"NEWS_EVALUATOR_PROVIDER" default:"deepseek"`
+	Keywords          []string `envconfig:"NEWS_KEYWORDS" default:"bitcoin,btc,crypto,cryptocurrency,ethereum,eth"`
+	Enabled           bool     `envconfig:"NEWS_ENABLED" default:"true"`
 	TwitterEnabled    bool     `envconfig:"TWITTER_ENABLED" default:"false"`
 	RedditEnabled     bool     `envconfig:"REDDIT_ENABLED" default:"true"`
 	CoinDeskEnabled   bool     `envconfig:"COINDESK_ENABLED" default:"true"`
-	Keywords          []string `envconfig:"NEWS_KEYWORDS" default:"bitcoin,btc,crypto,cryptocurrency,ethereum,eth"`
-	EvaluatorProvider string   `envconfig:"NEWS_EVALUATOR_PROVIDER" default:"deepseek"` // deepseek, openai, claude, or none (single provider)
-	EvaluatorEnabled  bool     `envconfig:"NEWS_EVALUATOR_ENABLED" default:"true"`      // Use AI evaluation or fallback to keywords
-	EvaluatorEnsemble bool     `envconfig:"NEWS_EVALUATOR_ENSEMBLE" default:"false"`    // Use all enabled AI providers for consensus (more accurate)
+	EvaluatorEnabled  bool     `envconfig:"NEWS_EVALUATOR_ENABLED" default:"true"`
+	EvaluatorEnsemble bool     `envconfig:"NEWS_EVALUATOR_ENSEMBLE" default:"false"`
 }
 
 // OnChainConfig represents on-chain monitoring configuration
 type OnChainConfig struct {
-	Enabled     bool `envconfig:"ONCHAIN_ENABLED" default:"true"`
-	MinValueUSD int  `envconfig:"ONCHAIN_MIN_VALUE_USD" default:"1000000"` // $1M minimum
-
-	// Provider configurations
 	WhaleAlert    OnChainProviderConfig `envconfig:"WHALE_ALERT"`
 	BlockchainCom OnChainProviderConfig `envconfig:"BLOCKCHAIN_COM"`
 	Etherscan     OnChainProviderConfig `envconfig:"ETHERSCAN"`
+	MinValueUSD   int                   `envconfig:"ONCHAIN_MIN_VALUE_USD" default:"1000000"`
+	Enabled       bool                  `envconfig:"ONCHAIN_ENABLED" default:"true"`
 }
 
 // OnChainProviderConfig represents single on-chain provider configuration
@@ -162,28 +159,28 @@ type TelegramConfig struct {
 // DatabaseConfig represents database connection parameters
 type DatabaseConfig struct {
 	Host     string `envconfig:"DB_HOST" default:"localhost"`
-	Port     int    `envconfig:"DB_PORT" default:"5432"`
 	Name     string `envconfig:"DB_NAME" default:"trader"`
 	User     string `envconfig:"DB_USER" required:"false" default:"postgres"`
 	Password string `envconfig:"DB_PASSWORD" required:"false" default:""`
 	SSLMode  string `envconfig:"DB_SSLMODE" default:"disable"`
+	Port     int    `envconfig:"DB_PORT" default:"5432"`
 }
 
 // ClickHouseConfig represents ClickHouse connection parameters
 type ClickHouseConfig struct {
 	Host     string `envconfig:"CH_HOST" default:"localhost"`
-	Port     int    `envconfig:"CH_PORT" default:"9000"`
 	Database string `envconfig:"CH_DATABASE" default:"trader"`
 	User     string `envconfig:"CH_USER" default:"default"`
 	Password string `envconfig:"CH_PASSWORD" default:""`
-	Enabled  bool   `envconfig:"CH_ENABLED" default:"false"` // Must explicitly enable
+	Port     int    `envconfig:"CH_PORT" default:"9000"`
+	Enabled  bool   `envconfig:"CH_ENABLED" default:"false"`
 }
 
 // RedisConfig represents Redis connection parameters
 type RedisConfig struct {
 	Host     string `envconfig:"REDIS_HOST" default:"localhost"`
-	Port     int    `envconfig:"REDIS_PORT" default:"6379"`
 	Password string `envconfig:"REDIS_PASSWORD" required:"false" default:""`
+	Port     int    `envconfig:"REDIS_PORT" default:"6379"`
 	DB       int    `envconfig:"REDIS_DB" default:"0"`
 }
 
@@ -221,10 +218,8 @@ func (c *Config) Validate() error {
 	// No validation needed here
 
 	// Check at least one AI provider is enabled and configured
-	aiConfigured := false
-	if c.AI.DeepSeek.Enabled && c.AI.DeepSeek.APIKey != "" {
-		aiConfigured = true
-	}
+	aiConfigured := c.AI.DeepSeek.Enabled && c.AI.DeepSeek.APIKey != ""
+
 	if c.AI.Claude.Enabled && c.AI.Claude.APIKey != "" {
 		aiConfigured = true
 	}

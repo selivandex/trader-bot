@@ -226,21 +226,21 @@ type PositionRiskMetrics struct {
 
 // WorstCaseScenario contains worst case analysis
 type WorstCaseScenario struct {
-	MaxLossUSD        float64 // Maximum possible loss in USD
-	MaxLossPercent    float64 // Maximum loss as % of balance
-	LiquidationRisk   string  // "low", "medium", "high"
-	TimeToLiquidation float64 // Estimated hours to liquidation at current volatility
-	Recovery          string  // How many winning trades needed to recover
+	LiquidationRisk   string
+	Recovery          string
+	MaxLossUSD        float64
+	MaxLossPercent    float64
+	TimeToLiquidation float64
 }
 
 // SimilarPattern represents similar historical pattern
 type SimilarPattern struct {
 	StartTime      time.Time
-	Similarity     float64 // 0.0-1.0, cosine similarity
-	Outcome        string  // "up", "down", "sideways"
-	OutcomePercent float64 // +5.2%, -3.1%, etc
-	Duration       time.Duration
+	Outcome        string
 	PatternHash    string
+	Similarity     float64
+	OutcomePercent float64
+	Duration       time.Duration
 }
 
 // PatternStats contains statistics for pattern type
@@ -257,13 +257,13 @@ type PatternStats struct {
 
 // PeerComparison compares agent with peers
 type PeerComparison struct {
+	StrengthAreas []string
+	WeaknessAreas []string
 	MyPerformance AgentPerformance
 	PeersAvg      AgentPerformance
 	TopPeer       AgentPerformance
 	MyRank        int
 	TotalPeers    int
-	StrengthAreas []string
-	WeaknessAreas []string
 }
 
 // AgentPerformance represents agent performance metrics
@@ -280,22 +280,22 @@ type AgentPerformance struct {
 
 // BestPractice contains lessons from best performing agent
 type BestPractice struct {
+	KeyDifferences     map[string]float64
 	TopAgentID         string
-	TopAgentPnL        float64
-	KeyDifferences     map[string]float64 // "onchain_weight": +0.15
 	RecommendedActions []string
+	TopAgentPnL        float64
 	ConfidenceScore    float64
 }
 
 // TradeRecord represents a completed trade with outcome
 type TradeRecord struct {
-	Symbol    string
-	Side      string
 	EntryTime time.Time
 	ExitTime  time.Time
+	Symbol    string
+	Side      string
+	Reason    string
 	PnL       float64
 	PnLPct    float64
-	Reason    string
 }
 
 // SignalPerformanceStats shows agent's performance by signal type
@@ -319,23 +319,23 @@ type SignalStats struct {
 
 // ToolCall represents one tool invocation with result
 type ToolCall struct {
-	ToolName   string                 `json:"tool_name"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Result     interface{}            `json:"result,omitempty"`
-	Error      string                 `json:"error,omitempty"`
 	StartTime  time.Time              `json:"start_time"`
+	Result     interface{}            `json:"result,omitempty"`
+	Parameters map[string]interface{} `json:"parameters"`
+	ToolName   string                 `json:"tool_name"`
+	Error      string                 `json:"error,omitempty"`
 	Latency    time.Duration          `json:"latency"`
 	Success    bool                   `json:"success"`
 }
 
 // ToolUsageTrace captures all tool calls during agent's thinking
 type ToolUsageTrace struct {
+	StartTime time.Time     `json:"start_time"`
+	EndTime   time.Time     `json:"end_time"`
 	SessionID string        `json:"session_id"`
 	AgentID   string        `json:"agent_id"`
 	ToolCalls []ToolCall    `json:"tool_calls"`
 	TotalTime time.Duration `json:"total_time"`
-	StartTime time.Time     `json:"start_time"`
-	EndTime   time.Time     `json:"end_time"`
 }
 
 // NewToolUsageTrace creates new trace

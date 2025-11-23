@@ -33,7 +33,6 @@ func (acc *AlertConditionChecker) ShouldAlertOwner(
 	state *ThinkingState,
 	confidence float64,
 ) (bool, string, string) {
-
 	// Priority levels: CRITICAL, HIGH, MEDIUM, LOW
 
 	// 1. CRITICAL: Liquidation Risk

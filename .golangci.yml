@@ -1,113 +1,119 @@
+# @format
+
+version: "2"
+
+# Migration notes from v1 to v2:
+# - typecheck: now built-in, doesn't need to be enabled
+# - gofmt/goimports: moved to formatters section (see bottom of file)
+# - gosimple: merged into staticcheck
+# - stylecheck/golint: replaced with revive
+# - gocritic: was in settings but not enabled, now enabled
+# - IMPORTANT: use 'golangci-lint fmt' instead of 'golangci-lint run --fix' for formatting
+# - --fix flag removed in v2, formatters run via separate 'fmt' command
+
 run:
-  timeout: 5m
-  tests: true
   go: "1.25"
-
-linters-settings:
-  govet:
-    enable-all: true
-  
-  gocyclo:
-    min-complexity: 15
-  
-  dupl:
-    threshold: 100
-  
-  goconst:
-    min-len: 2
-    min-occurrences: 3
-  
-  misspell:
-    locale: US
-  
-  lll:
-    line-length: 140
-  
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-  
-  funlen:
-    lines: 100
-    statements: 50
-
+  tests: true
 linters:
-  disable-all: true
+  default: none
   enable:
-    # Core linters
-    - errcheck        # Check for unchecked errors
-    - gosimple        # Simplify code
-    - govet           # Reports suspicious constructs
-    - ineffassign     # Detect ineffectual assignments
-    - staticcheck     # Advanced static analysis
-    - unused          # Check for unused constants, variables, functions and types
-    - typecheck       # Type-check code
-    
+    # Core linters (v2 compatible)
+    - errcheck # Check for unchecked errors
+    - govet # Reports suspicious constructs
+    - ineffassign # Detect ineffectual assignments
+    - staticcheck # Advanced static analysis (includes gosimple checks from v1)
+    - unused # Check for unused constants, variables, functions and types
+
     # Additional useful linters
-    - bodyclose       # Check HTTP response body closed
-    - dupl            # Code clone detection
-    - gocyclo         # Cyclomatic complexity
-    - goconst         # Find repeated strings that could be constants
-    - gofmt           # Check code formatting
-    - goimports       # Check import statements formatting
-    - gosec           # Security problems
-    - misspell        # Spell checker
-    - unconvert       # Remove unnecessary type conversions
-    - unparam         # Check for unused function parameters
-    - whitespace      # Detect leading and trailing whitespace
-    
-    # Style linters
-    - stylecheck      # Replacement for golint
+    - bodyclose # Check HTTP response body closed
+    - dupl # Code clone detection
+    - gocyclo # Cyclomatic complexity
+    - goconst # Find repeated strings that could be constants
+    - gosec # Security problems
+    - misspell # Spell checker
+    - unconvert # Remove unnecessary type conversions
+    - unparam # Check for unused function parameters
+    - whitespace # Detect leading and trailing whitespace
 
+    # Style and quality linters
+    - gocritic # Checks for bugs, performance and style issues
+    - revive # Fast linter for Go, replacement for golint and stylecheck from v1
+  settings:
+    dupl:
+      threshold: 100
+    funlen:
+      lines: 100
+      statements: 50
+    goconst:
+      min-len: 2
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable-all: true
+    lll:
+      line-length: 140
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dupl
+          - funlen
+          - gocyclo
+        path: _test\.go
+      - linters:
+          - errcheck
+          - gosec
+        path: _test\.go
+      - linters:
+          - lll
+        path: .*\.pb\.go
+      - linters:
+          - govet
+        text: shadows declaration
+    paths:
+      - vendor
+      - .git
+      - logs
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  # Directories to exclude
-  exclude-dirs:
-    - vendor
-    - .git
-    - logs
-
-  # Excluding configuration per-path, per-linter, per-text and per-source
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dupl
-        - funlen
-        - gocyclo
-    
-    # Exclude some linters from running on tests files
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-    
-    # Allow long lines in generated files
-    - path: ".*\\.pb\\.go"
-      linters:
-        - lll
-    
-    # Ignore shadowing of 'err'
-    - linters:
-        - govet
-      text: "shadows declaration"
-
-  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
   max-issues-per-linter: 0
-  
-  # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
   max-same-issues: 0
-
-  # Show only new issues: if there are unstaged changes or untracked files,
-  # only those changes are analyzed, else only changes in HEAD~ are analyzed.
   new: false
-
-  # Fix found issues (if it's supported by the linter)
-  fix: false
+formatters:
+  enable:
+    - gofmt # Code formatting (was linter in v1, now formatter in v2)
+    - goimports # Import statements formatting (was linter in v1, now formatter in v2)
+  settings:
+    gofmt:
+      simplify: true # Use gofmt -s to simplify code
+  exclusions:
+    generated: lax
+    paths:
+      - vendor
+      - .git
+      - logs
+      - third_party$
+      - builtin$
+      - examples$

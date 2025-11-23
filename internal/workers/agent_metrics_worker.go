@@ -58,28 +58,16 @@ func flushAgentMetrics(ctx context.Context, repo *clickhouse.Repository, records
 	return repo.SaveAgentMetrics(ctx, metrics)
 }
 
-// Start starts metrics collection worker
-func (w *AgentMetricsWorker) Start(ctx context.Context) error {
-	logger.Info("agent metrics worker starting",
-		zap.Duration("interval", w.interval),
-	)
+// Name returns worker name
+func (w *AgentMetricsWorker) Name() string {
+	return "agent_metrics"
+}
 
-	// Run immediately on start
+// Run executes one iteration - collects metrics from all running agents
+// Called periodically by pkg/worker.PeriodicWorker
+func (w *AgentMetricsWorker) Run(ctx context.Context) error {
 	w.collectMetrics(ctx)
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("agent metrics worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			w.collectMetrics(ctx)
-		}
-	}
+	return nil
 }
 
 // collectMetrics collects metrics from all running agents

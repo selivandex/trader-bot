@@ -16,8 +16,8 @@ import (
 // Client wraps RedLock manager for distributed locking + standard Redis for caching
 type Client struct {
 	lockManager *redlock.RedLock
+	cache       *redis.Client
 	redisAddrs  []string
-	cache       *redis.Client // Standard Redis client for caching
 }
 
 // New creates new Redis client with RedLock support + caching

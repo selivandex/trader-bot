@@ -39,10 +39,10 @@ func (m *ToolUsageMetric) Values() []interface{} {
 type EmbeddingDeduplicationMetric struct {
 	Timestamp    time.Time
 	TextHash     string
-	TextLength   int
 	Model        string
+	TextLength   int
+	CostSavedUSD float64
 	CacheHit     bool
-	CostSavedUSD float64 // $0.0001 per hit
 }
 
 func (m *EmbeddingDeduplicationMetric) TableName() string {

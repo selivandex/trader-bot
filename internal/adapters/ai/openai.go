@@ -20,10 +20,10 @@ const openaiAPIURL = "https://api.openai.com/v1/chat/completions"
 
 // OpenAIProvider implements AI provider for OpenAI GPT
 type OpenAIProvider struct {
-	apiKey         string
-	enabled        bool
 	client         *http.Client
 	strategyParams *models.StrategyParameters
+	apiKey         string
+	enabled        bool
 }
 
 // NewOpenAIProvider creates new OpenAI provider

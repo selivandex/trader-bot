@@ -36,29 +36,16 @@ func NewAgentRecoveryWorker(
 	}
 }
 
-// Start starts the periodic recovery check
-func (w *AgentRecoveryWorker) Start(ctx context.Context) error {
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
+// Name returns worker name
+func (w *AgentRecoveryWorker) Name() string {
+	return "agent_recovery"
+}
 
-	logger.Info("🔄 agent recovery worker started",
-		zap.Duration("interval", w.interval),
-	)
-
-	// Run once immediately on startup (after initial delay)
-	time.Sleep(30 * time.Second) // Wait for system to stabilize
+// Run executes one iteration - checks and recovers agents
+// Called periodically by pkg/worker.PeriodicWorker
+func (w *AgentRecoveryWorker) Run(ctx context.Context) error {
 	w.checkAndRecoverAgents(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("agent recovery worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			w.checkAndRecoverAgents(ctx)
-		}
-	}
+	return nil
 }
 
 // checkAndRecoverAgents checks if any agents should be running but aren't

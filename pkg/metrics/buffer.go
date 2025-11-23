@@ -14,12 +14,12 @@ import (
 // BufferedMetrics manages batched metrics with auto-flush
 type BufferedMetrics struct {
 	writer      Writer
-	buffer      map[string][]Metric // table_name -> metrics
-	bufferMu    sync.RWMutex
-	batchSize   int
+	buffer      map[string][]Metric
 	flushTicker *time.Ticker
 	stopCh      chan struct{}
 	wg          sync.WaitGroup
+	batchSize   int
+	bufferMu    sync.RWMutex
 }
 
 // BufferConfig configures metrics buffer

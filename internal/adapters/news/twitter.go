@@ -20,10 +20,10 @@ const twitterAPIURL = "https://api.twitter.com/2/tweets/search/recent"
 
 // TwitterProvider fetches news from Twitter (X)
 type TwitterProvider struct {
+	sentiment SentimentAnalyzer
+	client    *http.Client
 	apiKey    string
 	enabled   bool
-	client    *http.Client
-	sentiment SentimentAnalyzer
 }
 
 // SentimentAnalyzer analyzes text sentiment
@@ -67,7 +67,7 @@ func (t *TwitterProvider) FetchLatestNews(ctx context.Context, keywords []string
 
 	reqURL := fmt.Sprintf("%s?%s", twitterAPIURL, params.Encode())
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -87,10 +87,10 @@ func (t *TwitterProvider) FetchLatestNews(ctx context.Context, keywords []string
 
 	var result struct {
 		Data []struct {
+			CreatedAt     time.Time `json:"created_at"`
 			ID            string    `json:"id"`
 			Text          string    `json:"text"`
 			AuthorID      string    `json:"author_id"`
-			CreatedAt     time.Time `json:"created_at"`
 			PublicMetrics struct {
 				LikeCount    int `json:"like_count"`
 				RetweetCount int `json:"retweet_count"`

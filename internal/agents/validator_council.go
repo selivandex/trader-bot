@@ -33,11 +33,11 @@ const (
 
 // ValidatorConfig configures validation council
 type ValidatorConfig struct {
+	ValidateActions            []models.AIAction
+	MinConfidenceForValidation int
+	ConsensusThreshold         float64
 	Enabled                    bool
-	MinConfidenceForValidation int               // Only validate if agent confidence >= this
-	ValidateActions            []models.AIAction // Which actions to validate (typically BUY/SELL)
-	ConsensusThreshold         float64           // 0.66 = 2/3 validators must approve
-	RequireUnanimous           bool              // If true, all validators must approve
+	RequireUnanimous           bool
 }
 
 // ValidatorSetup defines individual validator configuration
@@ -53,29 +53,29 @@ type ValidatorResponse struct {
 	ValidatorRole     ValidatorRole
 	ProviderName      string
 	Verdict           ValidatorVerdict
-	Confidence        int    // 0-100
-	Reasoning         string // Why approve/reject
-	RiskConcerns      string // Specific risks identified
-	RecommendedAction string // Alternative action if rejected
+	Reasoning         string
+	RiskConcerns      string
+	RecommendedAction string
+	Confidence        int
 }
 
 // ConsensusResult is final decision from validator council
 type ConsensusResult struct {
 	OriginalDecision *models.AgentDecision
-	ValidatorVotes   []ValidatorResponse
 	FinalVerdict     ValidatorVerdict
-	ConsensusScore   float64 // 0.0-1.0, how aligned validators are
-	ApprovalRate     float64 // % of validators who approved
-	ExecutionAllowed bool
 	ConsensusSummary string
+	ValidatorVotes   []ValidatorResponse
+	ConsensusScore   float64
+	ApprovalRate     float64
+	ExecutionAllowed bool
 }
 
 // ValidatorCouncil manages multiple AI validators for consensus decision-making
 type ValidatorCouncil struct {
 	config          *ValidatorConfig
-	validators      []ValidatorSetup
 	agentConfig     *models.AgentConfig
 	templateManager *templates.Manager
+	validators      []ValidatorSetup
 }
 
 // NewValidatorCouncil creates new validator council
@@ -497,30 +497,6 @@ Your Task: Evaluate this decision and provide:
 Be thorough and critical. The agent trusts your judgment.`
 }
 
-// decisionToOption converts agent decision to TradingOption for evaluation
-func (vc *ValidatorCouncil) decisionToOption(
-	decision *models.AgentDecision,
-	marketData *models.MarketData,
-) *models.TradingOption {
-	return &models.TradingOption{
-		Action:          decision.Action,
-		Reasoning:       decision.Reason,
-		ExpectedOutcome: fmt.Sprintf("Agent confidence: %d%%", decision.Confidence),
-		EstimatedRisk:   vc.estimateRisk(decision),
-		Timeframe:       "1h-24h", // Typical holding period
-	}
-}
-
-// estimateRisk converts agent confidence to risk level
-func (vc *ValidatorCouncil) estimateRisk(decision *models.AgentDecision) string {
-	if decision.Confidence >= 80 {
-		return "Low"
-	} else if decision.Confidence >= 60 {
-		return "Medium"
-	}
-	return "High"
-}
-
 // calculateConsensus determines final verdict from validator votes
 func (vc *ValidatorCouncil) calculateConsensus(
 	decision *models.AgentDecision,
@@ -613,9 +589,10 @@ func (vc *ValidatorCouncil) buildConsensusSummary(
 
 	for _, response := range responses {
 		emoji := "✅"
-		if response.Verdict == VerdictReject {
+		switch response.Verdict {
+		case VerdictReject:
 			emoji = "❌"
-		} else if response.Verdict == VerdictAbstain {
+		case VerdictAbstain:
 			emoji = "⚪"
 		}
 

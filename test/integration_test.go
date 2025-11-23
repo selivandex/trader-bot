@@ -144,8 +144,8 @@ func TestTradingFlow(t *testing.T) {
 
 // MockAIProvider for testing
 type MockAIProvider struct {
-	enabled  bool
 	decision *models.AIDecision
+	enabled  bool
 }
 
 func (m *MockAIProvider) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error) {

@@ -7,7 +7,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"go.uber.org/zap"
 
+	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
 
@@ -32,7 +34,11 @@ func (r *Repository) SaveNewsItems(ctx context.Context, news []models.NewsItem) 
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			logger.Error("failed to rollback transaction", zap.Error(err))
+		}
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO news_items (

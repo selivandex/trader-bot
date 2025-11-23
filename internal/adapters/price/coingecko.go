@@ -19,8 +19,8 @@ type CoinGeckoProvider struct {
 }
 
 type cachedPrice struct {
-	price     float64
 	timestamp time.Time
+	price     float64
 }
 
 // NewCoinGeckoProvider creates new CoinGecko price provider
@@ -49,7 +49,7 @@ func (cg *CoinGeckoProvider) GetPrice(ctx context.Context, symbol string) (float
 
 	url := fmt.Sprintf("%s/simple/price?ids=%s&vs_currencies=usd", coingeckoAPIURL, coinID)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -104,7 +104,7 @@ func (cg *CoinGeckoProvider) GetPrices(ctx context.Context, symbols []string) (m
 	url := fmt.Sprintf("%s/simple/price?ids=%s&vs_currencies=usd",
 		coingeckoAPIURL, strings.Join(coinIDs, ","))
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

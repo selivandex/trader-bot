@@ -15,12 +15,12 @@ import (
 // NewsWorker continuously fetches and caches news in background
 // Only uses AI evaluation, no keyword-based scoring
 type NewsWorker struct {
+	newsEvaluator   ai.NewsEvaluatorInterface
 	aggregator      *news.Aggregator
 	cache           *news.Cache
-	newsEvaluator   ai.NewsEvaluatorInterface
-	useAIEvaluation bool
-	interval        time.Duration
 	keywords        []string
+	interval        time.Duration
+	useAIEvaluation bool
 }
 
 // NewNewsWorker creates new news worker
@@ -42,37 +42,24 @@ func NewNewsWorker(
 	}
 }
 
-// Start starts the news worker
-func (w *NewsWorker) Start(ctx context.Context) error {
-	logger.Info("news worker starting",
-		zap.Duration("interval", w.interval),
-		zap.Strings("keywords", w.keywords),
-	)
+// Name returns worker name
+func (w *NewsWorker) Name() string {
+	return "news_fetcher"
+}
 
-	// Run immediately on start
+// Run executes one iteration - fetches and caches news
+// Called periodically by pkg/worker.PeriodicWorker
+// Note: cleanup runs only when called from main every 24h
+func (w *NewsWorker) Run(ctx context.Context) error {
 	w.fetchAndCache(ctx)
+	return nil
+}
 
-	// Then run periodically
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	// Cleanup ticker (once per day)
-	cleanupTicker := time.NewTicker(24 * time.Hour)
-	defer cleanupTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("news worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			w.fetchAndCache(ctx)
-
-		case <-cleanupTicker.C:
-			w.cleanup(ctx)
-		}
-	}
+// RunWithCleanup runs fetch and cleanup together (for 24h periodic call)
+func (w *NewsWorker) RunWithCleanup(ctx context.Context) error {
+	w.fetchAndCache(ctx)
+	w.cleanup(ctx)
+	return nil
 }
 
 // fetchAndCache fetches news from providers and caches to database

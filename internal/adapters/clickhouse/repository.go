@@ -21,6 +21,13 @@ func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// safeRollback performs rollback and logs error if it occurs
+func safeRollback(tx *sqlx.Tx) {
+	if err := tx.Rollback(); err != nil {
+		logger.Error("failed to rollback transaction", zap.Error(err))
+	}
+}
+
 // SaveCandles saves OHLCV candles to ClickHouse
 func (r *Repository) SaveCandles(ctx context.Context, symbol, timeframe string, candles []models.Candle) error {
 	if len(candles) == 0 {
@@ -38,7 +45,7 @@ func (r *Repository) SaveCandles(ctx context.Context, symbol, timeframe string, 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		tx.Rollback()
+		safeRollback(tx)
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
@@ -57,7 +64,7 @@ func (r *Repository) SaveCandles(ctx context.Context, symbol, timeframe string, 
 			candle.Trades,
 		)
 		if err != nil {
-			tx.Rollback()
+			safeRollback(tx)
 			return fmt.Errorf("failed to insert candle: %w", err)
 		}
 	}
@@ -92,7 +99,7 @@ func (r *Repository) SaveTrades(ctx context.Context, trades []models.Trade) erro
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		tx.Rollback()
+		safeRollback(tx)
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
@@ -119,7 +126,7 @@ func (r *Repository) SaveTrades(ctx context.Context, trades []models.Trade) erro
 			trade.ExitReason,
 		)
 		if err != nil {
-			tx.Rollback()
+			safeRollback(tx)
 			return fmt.Errorf("failed to insert trade: %w", err)
 		}
 	}
@@ -152,7 +159,7 @@ func (r *Repository) SaveNews(ctx context.Context, articles []models.NewsItem) e
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		tx.Rollback()
+		safeRollback(tx)
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
@@ -177,7 +184,7 @@ func (r *Repository) SaveNews(ctx context.Context, articles []models.NewsItem) e
 			article.ProcessedAt,
 		)
 		if err != nil {
-			tx.Rollback()
+			safeRollback(tx)
 			return fmt.Errorf("failed to insert news: %w", err)
 		}
 	}
@@ -211,7 +218,7 @@ func (r *Repository) SaveOnChainTransactions(ctx context.Context, transactions [
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		tx.Rollback()
+		safeRollback(tx)
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
@@ -237,7 +244,7 @@ func (r *Repository) SaveOnChainTransactions(ctx context.Context, transactions [
 			txn.DetectedAt,
 		)
 		if err != nil {
-			tx.Rollback()
+			safeRollback(tx)
 			return fmt.Errorf("failed to insert transaction: %w", err)
 		}
 	}
@@ -274,7 +281,7 @@ func (r *Repository) SaveAgentMetrics(ctx context.Context, metrics []models.Agen
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		tx.Rollback()
+		safeRollback(tx)
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
@@ -308,7 +315,7 @@ func (r *Repository) SaveAgentMetrics(ctx context.Context, metrics []models.Agen
 			metric.WinRate,
 		)
 		if err != nil {
-			tx.Rollback()
+			safeRollback(tx)
 			return fmt.Errorf("failed to insert metric: %w", err)
 		}
 	}

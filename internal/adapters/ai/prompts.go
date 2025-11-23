@@ -186,10 +186,10 @@ func parseNewsEvaluation(content string) (*NewsEvaluation, error) {
 	jsonStr := extractJSON(content)
 
 	var eval struct {
-		Sentiment float64 `json:"sentiment"`
-		Impact    int     `json:"impact"`
 		Urgency   string  `json:"urgency"`
 		Reasoning string  `json:"reasoning"`
+		Sentiment float64 `json:"sentiment"`
+		Impact    int     `json:"impact"`
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &eval); err != nil {
@@ -219,10 +219,10 @@ func parseNewsEvaluation(content string) (*NewsEvaluation, error) {
 
 // NewsEvaluation represents AI evaluation of news
 type NewsEvaluation struct {
-	Sentiment float64 `json:"sentiment"`
-	Impact    int     `json:"impact"`
 	Urgency   string  `json:"urgency"`
 	Reasoning string  `json:"reasoning"`
+	Sentiment float64 `json:"sentiment"`
+	Impact    int     `json:"impact"`
 }
 
 // parseAndApplyNewsBatchEvaluations parses AI response and applies to news items
@@ -230,11 +230,11 @@ func parseAndApplyNewsBatchEvaluations(responseText string, newsItems []*models.
 	jsonStr := extractJSON(responseText)
 
 	var evaluations []struct {
+		Urgency   string  `json:"urgency"`
+		Reasoning string  `json:"reasoning"`
 		Index     int     `json:"index"`
 		Sentiment float64 `json:"sentiment"`
 		Impact    int     `json:"impact"`
-		Urgency   string  `json:"urgency"`
-		Reasoning string  `json:"reasoning"`
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &evaluations); err != nil {
@@ -332,7 +332,7 @@ func FormatDecisionReason(personality, aiProvider, aiReason string, signals map[
 
 // SignalWithWeight combines signal score with agent's weight
 type SignalWithWeight struct {
+	Direction string
 	Score     float64
 	Weight    float64
-	Direction string
 }

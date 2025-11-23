@@ -29,11 +29,10 @@ type EmbeddingRepository interface {
 
 // Client handles unified embedding generation with deduplication via repository
 type Client struct {
-	openaiClient  *openai.Client
-	repository    EmbeddingRepository // Optional repository for deduplication
-	model         openai.EmbeddingModel
-	metricsBuffer metrics.Buffer // Optional metrics buffer for ClickHouse
-	// Deduplication stats (in-memory counters)
+	repository          EmbeddingRepository
+	metricsBuffer       metrics.Buffer
+	openaiClient        *openai.Client
+	model               openai.EmbeddingModel
 	deduplicationHits   int64
 	deduplicationMisses int64
 }
@@ -76,14 +75,16 @@ func (c *Client) Generate(ctx context.Context, text string) ([]float32, error) {
 
 			// Log to ClickHouse
 			if c.metricsBuffer != nil {
-				c.metricsBuffer.Add(&metrics.EmbeddingDeduplicationMetric{
+				if err := c.metricsBuffer.Add(&metrics.EmbeddingDeduplicationMetric{
 					Timestamp:    time.Now(),
 					TextHash:     textHash[:16], // Store prefix only
 					TextLength:   len(text),
 					Model:        string(c.model),
 					CacheHit:     true,
 					CostSavedUSD: 0.0001,
-				})
+				}); err != nil {
+					logger.Error("failed to add deduplication metric", zap.Error(err))
+				}
 			}
 
 			logger.Debug("✅ embedding deduplication HIT (saved $0.0001)",
@@ -124,14 +125,16 @@ func (c *Client) Generate(ctx context.Context, text string) ([]float32, error) {
 	// Log miss to ClickHouse
 	if c.metricsBuffer != nil {
 		textHash := c.hashText(text)
-		c.metricsBuffer.Add(&metrics.EmbeddingDeduplicationMetric{
+		if err := c.metricsBuffer.Add(&metrics.EmbeddingDeduplicationMetric{
 			Timestamp:    time.Now(),
 			TextHash:     textHash[:16],
 			TextLength:   len(text),
 			Model:        string(c.model),
 			CacheHit:     false,
 			CostSavedUSD: 0,
-		})
+		}); err != nil {
+			logger.Error("failed to add embedding miss metric", zap.Error(err))
+		}
 	}
 
 	logger.Debug("💸 embedding generated via OpenAI API (cost: $0.0001)",

@@ -16,20 +16,20 @@ import (
 
 // Tracker tracks portfolio balance, equity, and performance
 type Tracker struct {
-	mu                        sync.RWMutex
-	repo                      *Repository
+	lastDailyReset            time.Time
 	exchange                  exchange.Exchange
-	initialBalance            float64
+	repo                      *Repository
+	peakEquity                float64
 	currentBalance            float64
 	equity                    float64
-	peakEquity                float64
 	dailyPnL                  float64
 	totalPnL                  float64
 	totalTrades               int
 	winningTrades             int
 	losingTrades              int
 	profitWithdrawalThreshold float64
-	lastDailyReset            time.Time
+	initialBalance            float64
+	mu                        sync.RWMutex
 }
 
 // NewTracker creates new portfolio tracker

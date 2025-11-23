@@ -429,9 +429,9 @@ func TestParseNewsEvaluation(t *testing.T) {
 	testCases := []struct {
 		name              string
 		input             string
+		expectedUrgency   string
 		expectedSentiment float64
 		expectedImpact    int
-		expectedUrgency   string
 		expectedError     bool
 	}{
 		{

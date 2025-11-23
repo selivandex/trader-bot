@@ -19,29 +19,17 @@ func NewDailyMetricsWorker(repo *Repository) *DailyMetricsWorker {
 	return &DailyMetricsWorker{repo: repo}
 }
 
-// Start starts the daily metrics worker
-func (dmw *DailyMetricsWorker) Start(ctx context.Context) error {
-	logger.Info("daily metrics worker starting")
+// Name returns worker name
+func (dmw *DailyMetricsWorker) Name() string {
+	return "daily_metrics"
+}
 
-	// Calculate immediately for yesterday
+// Run executes one iteration - calculates metrics for yesterday
+// Called periodically (24h) by pkg/worker.PeriodicWorker
+func (dmw *DailyMetricsWorker) Run(ctx context.Context) error {
 	yesterday := time.Now().AddDate(0, 0, -1)
 	dmw.calculateForAllUsers(ctx, yesterday)
-
-	// Then run daily at midnight
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("daily metrics worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			yesterday := time.Now().AddDate(0, 0, -1)
-			dmw.calculateForAllUsers(ctx, yesterday)
-		}
-	}
+	return nil
 }
 
 // calculateForAllUsers calculates metrics for all users

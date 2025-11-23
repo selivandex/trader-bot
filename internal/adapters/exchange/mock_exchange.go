@@ -12,12 +12,12 @@ import (
 
 // MockExchange implements Exchange interface for testing and paper trading
 type MockExchange struct {
-	name           string
 	balance        *models.Balance
 	positions      map[string]*models.Position
 	orders         map[string]*models.Order
-	lastPrice      float64
 	priceGenerator func() float64
+	name           string
+	lastPrice      float64
 }
 
 // NewMockExchange creates new mock exchange
@@ -42,7 +42,7 @@ func NewMockExchange(name string, initialBalance float64) *MockExchange {
 		lastPrice: 43000.0, // Default BTC price
 		priceGenerator: func() float64 {
 			// Simple random price movement
-			return 43000.0 * (1.0 + (rand.Float64()-0.5)*0.02) // ±1% movement
+			return 43000.0 * (1.0 + (rand.Float64()-0.5)*0.02) //nolint:gosec // Mock data generation, not cryptographic
 		},
 	}
 }
@@ -74,9 +74,13 @@ func (m *MockExchange) FetchOHLCV(ctx context.Context, symbol, timeframe string,
 
 	for i := 0; i < limit; i++ {
 		// Generate realistic candle
+		//nolint:gosec // Mock data generation, not cryptographic
 		open := basePrice * (1.0 + (rand.Float64()-0.5)*0.02)
+		//nolint:gosec // Mock data generation, not cryptographic
 		close := open * (1.0 + (rand.Float64()-0.5)*0.03)
+		//nolint:gosec // Mock data generation, not cryptographic
 		high := max(open, close) * (1.0 + rand.Float64()*0.01)
+		//nolint:gosec // Mock data generation, not cryptographic
 		low := min(open, close) * (1.0 - rand.Float64()*0.01)
 
 		candles[i] = models.Candle{
@@ -85,7 +89,7 @@ func (m *MockExchange) FetchOHLCV(ctx context.Context, symbol, timeframe string,
 			High:      models.NewDecimal(high),
 			Low:       models.NewDecimal(low),
 			Close:     models.NewDecimal(close),
-			Volume:    models.NewDecimal(100.0 + rand.Float64()*50),
+			Volume:    models.NewDecimal(100.0 + rand.Float64()*50), //nolint:gosec // Mock data generation, not cryptographic
 		}
 
 		basePrice = close
@@ -106,11 +110,11 @@ func (m *MockExchange) FetchOrderBook(ctx context.Context, symbol string, depth 
 
 		bids[i] = models.OrderBookItem{
 			Price:  models.NewDecimal(bidPrice),
-			Amount: models.NewDecimal(1.0 + rand.Float64()*5),
+			Amount: models.NewDecimal(1.0 + rand.Float64()*5), //nolint:gosec // Mock data generation, not cryptographic
 		}
 		asks[i] = models.OrderBookItem{
 			Price:  models.NewDecimal(askPrice),
-			Amount: models.NewDecimal(1.0 + rand.Float64()*5),
+			Amount: models.NewDecimal(1.0 + rand.Float64()*5), //nolint:gosec // Mock data generation, not cryptographic
 		}
 	}
 
@@ -293,7 +297,7 @@ func parseDuration(timeframe string) time.Duration {
 
 func parseInt(s string) int {
 	var n int
-	fmt.Sscanf(s, "%d", &n)
+	_, _ = fmt.Sscanf(s, "%d", &n)
 	if n == 0 {
 		return 1
 	}

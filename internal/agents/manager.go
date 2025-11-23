@@ -34,45 +34,44 @@ type Notifier interface {
 // AgenticManager manages autonomous AI agents with full thinking capabilities
 // This is the upgraded manager that uses Chain-of-Thought, Memory, Reflection, and Planning
 type AgenticManager struct {
-	mu              sync.RWMutex
-	db              *sqlx.DB
-	chDB            *sqlx.DB // ClickHouse for metrics (optional)
-	redisClient     *redisAdapter.Client
-	lockFactory     redisAdapter.LockFactory // Factory for creating distributed locks
-	repository      *Repository
+	lockFactory     redisAdapter.LockFactory
+	ctx             context.Context
+	metricsBuffer   metrics.Buffer
+	notifier        Notifier
+	newsCache       *news.Cache
+	runningAgents   map[string]*AgenticRunner
 	marketRepo      *market.Repository
 	newsAggregator  *news.Aggregator
-	newsCache       *news.Cache                   // Direct access to news cache for toolkit
-	templateManager *templates.Manager            // Global templates for validators
-	notifier        Notifier                      // Telegram notifier (can be nil)
-	aiProviders     map[string]ai.AgenticProvider // Only agentic providers
-	embeddingClient *embeddings.Client            // Unified embedding client
-	metricsBuffer   metrics.Buffer                // Universal metrics buffer (optional)
-	runningAgents   map[string]*AgenticRunner     // agentID -> runner
-	ctx             context.Context
 	cancel          context.CancelFunc
-	wg              sync.WaitGroup // For graceful shutdown
-	shutdownOnce    sync.Once      // Ensure shutdown runs once
+	templateManager *templates.Manager
+	redisClient     *redisAdapter.Client
+	aiProviders     map[string]ai.AgenticProvider
+	embeddingClient *embeddings.Client
+	chDB            *sqlx.DB
+	repository      *Repository
+	db              *sqlx.DB
+	wg              sync.WaitGroup
+	mu              sync.RWMutex
+	shutdownOnce    sync.Once
 }
-
 
 // AgenticRunner represents a fully autonomous agent
 type AgenticRunner struct {
-	Config           *models.AgentConfig
-	State            *models.AgentState
-	CoTEngine        *AdaptiveCoTEngine     // Adaptive Chain-of-Thought (true autonomous reasoning)
-	ReflectionEngine *ReflectionEngine      // Post-trade learning
-	PlanningEngine   *PlanningEngine        // Forward planning
-	MemoryManager    *SemanticMemoryManager // Episodic memory
-	ValidatorCouncil *ValidatorCouncil      // Multi-AI validator consensus
-	Exchange         exchange.Exchange
-	Lock             redisAdapter.AgentLock // Distributed lock for K8s (interface)
-	Notifier         Notifier               // Telegram notifier (can be nil)
-	CancelFunc       context.CancelFunc
-	IsRunning        bool
-	LastDecisionAt   time.Time
-	LastReflectionAt time.Time
 	LastPlanningAt   time.Time
+	LastReflectionAt time.Time
+	LastDecisionAt   time.Time
+	Exchange         exchange.Exchange
+	Notifier         Notifier
+	Lock             redisAdapter.AgentLock
+	ReflectionEngine *ReflectionEngine
+	ValidatorCouncil *ValidatorCouncil
+	MemoryManager    *SemanticMemoryManager
+	PlanningEngine   *PlanningEngine
+	CancelFunc       context.CancelFunc
+	Config           *models.AgentConfig
+	CoTEngine        *AdaptiveCoTEngine
+	State            *models.AgentState
+	IsRunning        bool
 }
 
 // NewAgenticManager creates new agentic agent manager
@@ -155,12 +154,16 @@ func (am *AgenticManager) StartAgenticAgent(
 	config, err := am.repository.GetAgent(ctx, agentID)
 	if err != nil {
 		// Release lock if config load fails
-		lock.Release(ctx)
+		if releaseErr := lock.Release(ctx); releaseErr != nil {
+			logger.Error("failed to release lock", zap.Error(releaseErr))
+		}
 		return fmt.Errorf("failed to load agent config: %w", err)
 	}
 
 	if !config.IsActive {
-		lock.Release(ctx)
+		if releaseErr := lock.Release(ctx); releaseErr != nil {
+			logger.Error("failed to release lock", zap.Error(releaseErr))
+		}
 		return fmt.Errorf("agent is not active")
 	}
 
@@ -304,7 +307,9 @@ func (am *AgenticManager) runAgenticAgent(ctx context.Context, runner *AgenticRu
 
 			// Memory consolidation (forget unimportant memories weekly)
 			if time.Now().Weekday() == time.Sunday && time.Now().Hour() == 0 {
-				runner.MemoryManager.Forget(ctx, runner.Config.ID, 0.3)
+				if err := runner.MemoryManager.Forget(ctx, runner.Config.ID, 0.3); err != nil {
+					logger.Error("failed to forget unimportant memories", zap.Error(err))
+				}
 			}
 		}
 	}
@@ -437,7 +442,9 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 	}
 
 	// Step 8: Update agent state
-	am.updateAgentState(ctx, runner)
+	if err := am.updateAgentState(ctx, runner); err != nil {
+		logger.Error("failed to update agent state", zap.Error(err))
+	}
 
 	return nil
 }
@@ -662,7 +669,9 @@ func (am *AgenticManager) RestoreRunningAgents(ctx context.Context, exchangeFact
 		}
 
 		// Release lock immediately - StartAgenticAgent will acquire it again
-		lock.Release(ctx)
+		if releaseErr := lock.Release(ctx); releaseErr != nil {
+			logger.Error("failed to release lock during recovery", zap.Error(releaseErr))
+		}
 
 		// Create exchange adapter
 		exchangeAdapter, err := exchangeFactory(agentInfo.Exchange, agentInfo.APIKey, agentInfo.APISecret, agentInfo.Testnet)

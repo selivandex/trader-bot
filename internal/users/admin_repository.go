@@ -23,20 +23,21 @@ func NewAdminRepository(db *sqlx.DB) *AdminRepository {
 
 // SystemStats represents overall system statistics
 type SystemStats struct {
+	TopPerformingAgent   *AgentPerformance
+	WorstPerformingAgent *AgentPerformance
 	TotalUsers           int
-	ActiveUsers          int // Users with at least one active agent
+	ActiveUsers          int
 	TotalAgents          int
-	ActiveAgents         int // Agents currently running
+	ActiveAgents         int
 	TotalTrades          int
 	ProfitableTrades     int
 	TotalVolume          float64
 	TotalProfit          float64
-	TopPerformingAgent   *AgentPerformance
-	WorstPerformingAgent *AgentPerformance
 }
 
 // AgentPerformance represents agent performance metrics
 type AgentPerformance struct {
+	LastTradeAt time.Time
 	AgentID     string
 	AgentName   string
 	UserID      string
@@ -48,15 +49,14 @@ type AgentPerformance struct {
 	AvgProfit   float64
 	MaxDrawdown float64
 	Sharpe      float64
-	LastTradeAt time.Time
 }
 
 // UserStats represents user statistics
 type UserStats struct {
+	RegisteredAt time.Time
 	UserID       string
 	Username     string
 	TelegramID   int64
-	RegisteredAt time.Time
 	TotalAgents  int
 	ActiveAgents int
 	TotalTrades  int
@@ -66,12 +66,12 @@ type UserStats struct {
 
 // NewsStats represents news aggregation statistics
 type NewsStats struct {
+	TopKeywords       []KeywordCount
 	TotalNews         int
 	Last24h           int
 	PositiveSentiment int
 	NegativeSentiment int
 	NeutralSentiment  int
-	TopKeywords       []KeywordCount
 }
 
 // KeywordCount represents keyword frequency
@@ -82,12 +82,12 @@ type KeywordCount struct {
 
 // TradeStats represents trading statistics
 type TradeStats struct {
+	ByExchange   map[string]int
+	BySymbol     map[string]int
 	TotalTrades  int
 	Last24h      int
 	Last7d       int
 	Last30d      int
-	ByExchange   map[string]int
-	BySymbol     map[string]int
 	AvgProfit    float64
 	MedianProfit float64
 	TotalVolume  float64

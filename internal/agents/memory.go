@@ -183,12 +183,12 @@ func (m *MemoryManager) GetPerformanceMetrics(ctx context.Context, agentID strin
 // DecisionOutcome represents the outcome of a trading decision
 type DecisionOutcome struct {
 	PnL           decimal.Decimal `json:"pnl"`
+	ExitPrice     decimal.Decimal `json:"exit_price"`
+	ExitReason    string          `json:"exit_reason"`
 	PnLPercent    float64         `json:"pnl_percent"`
 	Duration      time.Duration   `json:"duration"`
-	ExitPrice     decimal.Decimal `json:"exit_price"`
 	MaxDrawdown   float64         `json:"max_drawdown"`
 	WasSuccessful bool            `json:"was_successful"`
-	ExitReason    string          `json:"exit_reason"`
 }
 
 // Note: AgentPerformanceMetrics is now defined in repository.go

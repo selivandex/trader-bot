@@ -29,4 +29,3 @@ type Buffer interface {
 	// Close flushes and closes buffer
 	Close(ctx context.Context) error
 }
-

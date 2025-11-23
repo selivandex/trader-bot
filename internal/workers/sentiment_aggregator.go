@@ -15,8 +15,8 @@ import (
 type SentimentAggregator struct {
 	repo     *Repository
 	newsRepo *news.Repository
-	interval time.Duration
 	cache    *SentimentCache
+	interval time.Duration
 }
 
 // SentimentCache caches current sentiment in memory
@@ -28,14 +28,14 @@ type SentimentCache struct {
 
 // SentimentMetrics represents aggregated sentiment over time
 type SentimentMetrics struct {
+	UpdatedAt         time.Time `json:"updated_at"`
+	SentimentTrend    string    `json:"sentiment_trend"`
+	TrendDirection    string    `json:"trend_direction"`
 	CurrentSentiment  float64   `json:"current_sentiment"`
-	SentimentTrend    string    `json:"sentiment_trend"`    // improving, declining, stable
-	SentimentMomentum float64   `json:"sentiment_momentum"` // rate of change
+	SentimentMomentum float64   `json:"sentiment_momentum"`
 	LastHourAvg       float64   `json:"last_hour_avg"`
 	Last6HoursAvg     float64   `json:"last_6hours_avg"`
 	Last24HoursAvg    float64   `json:"last_24hours_avg"`
-	TrendDirection    string    `json:"trend_direction"` // bullish, bearish, neutral
-	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // NewSentimentAggregator creates new sentiment aggregator
@@ -48,25 +48,16 @@ func NewSentimentAggregator(repo *Repository, newsRepo *news.Repository, interva
 	}
 }
 
-// Start starts the sentiment aggregator
-func (sa *SentimentAggregator) Start(ctx context.Context) error {
-	logger.Info("sentiment aggregator starting",
-		zap.Duration("interval", sa.interval),
-	)
+// Name returns worker name
+func (sa *SentimentAggregator) Name() string {
+	return "sentiment_aggregator"
+}
 
-	ticker := time.NewTicker(sa.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("sentiment aggregator stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			sa.calculateMetrics(ctx)
-		}
-	}
+// Run executes one iteration - calculates sentiment metrics
+// Called periodically by pkg/worker.PeriodicWorker
+func (sa *SentimentAggregator) Run(ctx context.Context) error {
+	sa.calculateMetrics(ctx)
+	return nil
 }
 
 // calculateMetrics calculates weighted sentiment with impact scores

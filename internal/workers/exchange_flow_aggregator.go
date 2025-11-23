@@ -23,25 +23,16 @@ func NewExchangeFlowAggregator(repo *Repository, interval time.Duration) *Exchan
 	}
 }
 
-// Start starts the aggregator
-func (efa *ExchangeFlowAggregator) Start(ctx context.Context) error {
-	logger.Info("exchange flow aggregator starting",
-		zap.Duration("interval", efa.interval),
-	)
+// Name returns worker name
+func (efa *ExchangeFlowAggregator) Name() string {
+	return "exchange_flow_aggregator"
+}
 
-	ticker := time.NewTicker(efa.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("exchange flow aggregator stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			efa.aggregate(ctx)
-		}
-	}
+// Run executes one iteration - aggregates exchange flows
+// Called periodically by pkg/worker.PeriodicWorker
+func (efa *ExchangeFlowAggregator) Run(ctx context.Context) error {
+	efa.aggregate(ctx)
+	return nil
 }
 
 // aggregate calculates exchange flows from whale transactions

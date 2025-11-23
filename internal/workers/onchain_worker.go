@@ -34,29 +34,16 @@ func NewOnChainWorker(
 	}
 }
 
-// Start starts the on-chain monitoring worker
-func (ow *OnChainWorker) Start(ctx context.Context) error {
-	logger.Info("on-chain worker starting",
-		zap.Duration("interval", ow.interval),
-		zap.Int("min_value_usd", ow.minValueUSD),
-	)
+// Name returns worker name
+func (ow *OnChainWorker) Name() string {
+	return "onchain_monitor"
+}
 
-	// Run immediately
+// Run executes one iteration - fetches and caches whale transactions
+// Called periodically by pkg/worker.PeriodicWorker
+func (ow *OnChainWorker) Run(ctx context.Context) error {
 	ow.fetchAndCache(ctx)
-
-	ticker := time.NewTicker(ow.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("on-chain worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			ow.fetchAndCache(ctx)
-		}
-	}
+	return nil
 }
 
 // fetchAndCache fetches whale transactions and caches them

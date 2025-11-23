@@ -70,14 +70,15 @@ func (v *Validator) validateOpenAction(decision *models.AIDecision, marketData *
 	currentPrice := models.ToFloat64(marketData.Ticker.Last)
 
 	// Validate stop loss and take profit placement
-	if decision.Action == models.ActionOpenLong {
+	switch decision.Action {
+	case models.ActionOpenLong:
 		if stopLoss >= currentPrice {
 			return fmt.Errorf("invalid stop loss for long: %.2f (current price: %.2f)", stopLoss, currentPrice)
 		}
 		if takeProfit <= currentPrice {
 			return fmt.Errorf("invalid take profit for long: %.2f (current price: %.2f)", takeProfit, currentPrice)
 		}
-	} else if decision.Action == models.ActionOpenShort {
+	case models.ActionOpenShort:
 		if stopLoss <= currentPrice {
 			return fmt.Errorf("invalid stop loss for short: %.2f (current price: %.2f)", stopLoss, currentPrice)
 		}

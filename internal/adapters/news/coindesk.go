@@ -19,9 +19,9 @@ const coindeskAPIURL = "https://www.coindesk.com/arc/outboundfeeds/news/?outputT
 
 // CoinDeskProvider fetches news from CoinDesk
 type CoinDeskProvider struct {
-	enabled   bool
-	client    *http.Client
 	sentiment SentimentAnalyzer
+	client    *http.Client
+	enabled   bool
 }
 
 // NewCoinDeskProvider creates new CoinDesk provider
@@ -48,7 +48,7 @@ func (c *CoinDeskProvider) FetchLatestNews(ctx context.Context, keywords []strin
 
 	url := fmt.Sprintf(coindeskAPIURL, limit)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -65,10 +65,11 @@ func (c *CoinDeskProvider) FetchLatestNews(ctx context.Context, keywords []strin
 	}
 
 	var result []struct {
-		ID        string `json:"_id"`
-		Type      string `json:"type"`
-		Canonical string `json:"canonical_url"`
-		Headlines struct {
+		DisplayDate time.Time `json:"display_date"`
+		ID          string    `json:"_id"`
+		Type        string    `json:"type"`
+		Canonical   string    `json:"canonical_url"`
+		Headlines   struct {
 			Basic string `json:"basic"`
 		} `json:"headlines"`
 		Description struct {
@@ -79,7 +80,6 @@ func (c *CoinDeskProvider) FetchLatestNews(ctx context.Context, keywords []strin
 				Name string `json:"name"`
 			} `json:"by"`
 		} `json:"credits"`
-		DisplayDate time.Time `json:"display_date"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

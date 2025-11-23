@@ -113,10 +113,6 @@ func (ut *UserTracker) RecordTrade(ctx context.Context, trade *models.Trade) err
 }
 
 // saveState saves current state to database for this user
-func (ut *UserTracker) saveState(ctx context.Context) error {
-	return ut.repo.SaveUserState(ctx, ut.userID, ut.currentBalance, ut.equity, ut.dailyPnL, ut.peakEquity)
-}
-
 // resetDaily resets daily counters for this user
 func (ut *UserTracker) resetDaily(ctx context.Context) error {
 	logger.Info("resetting daily counters",

@@ -21,9 +21,9 @@ type Provider interface {
 
 // Aggregator aggregates news from multiple sources
 type Aggregator struct {
+	cache     *Cache
 	providers []Provider
 	keywords  []string
-	cache     *Cache
 	useCache  bool
 }
 
@@ -43,8 +43,8 @@ func (a *Aggregator) FetchAllNews(ctx context.Context, since time.Duration) (*mo
 
 	// Query all providers in parallel
 	type result struct {
-		news []models.NewsItem
 		err  error
+		news []models.NewsItem
 	}
 
 	results := make(chan result, len(a.providers))

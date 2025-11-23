@@ -46,11 +46,11 @@ func (nee *NewsEvaluatorEnsemble) EvaluateNews(ctx context.Context, newsItem *mo
 
 	// Create channels for results
 	type result struct {
+		err       error
 		provider  string
+		urgency   string
 		sentiment float64
 		impact    int
-		urgency   string
-		err       error
 	}
 
 	enabledCount := 0
@@ -148,8 +148,8 @@ func (nee *NewsEvaluatorEnsemble) EvaluateNewsBatch(ctx context.Context, newsIte
 
 	// For ensemble, query all providers in parallel with batch evaluation
 	type batchResult struct {
-		provider string
 		err      error
+		provider string
 	}
 
 	enabledCount := 0

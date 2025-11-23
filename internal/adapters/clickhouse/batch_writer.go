@@ -13,16 +13,16 @@ import (
 
 // BatchWriter buffers records and writes them via repository in batches
 type BatchWriter struct {
+	ctx         context.Context
 	repo        *Repository
-	buffer      []interface{}
-	bufferMu    sync.Mutex
-	maxBatch    int
-	maxWait     time.Duration
 	flushTicker *time.Ticker
 	flushFunc   func(context.Context, *Repository, []interface{}) error
-	ctx         context.Context
 	cancel      context.CancelFunc
+	buffer      []interface{}
 	wg          sync.WaitGroup
+	maxBatch    int
+	maxWait     time.Duration
+	bufferMu    sync.Mutex
 }
 
 // NewBatchWriter creates new batch writer

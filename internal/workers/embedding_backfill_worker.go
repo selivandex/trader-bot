@@ -14,9 +14,9 @@ import (
 // EmbeddingBackfillWorker fills in missing embeddings for news items
 // Runs every hour to catch any items that failed during initial processing
 type EmbeddingBackfillWorker struct {
-	cache    *news.Cache
-	repo     *news.Repository
-	interval time.Duration
+	cache     *news.Cache
+	repo      *news.Repository
+	interval  time.Duration
 	batchSize int
 }
 
@@ -34,30 +34,16 @@ func NewEmbeddingBackfillWorker(
 	}
 }
 
-// Start starts the backfill worker
-func (w *EmbeddingBackfillWorker) Start(ctx context.Context) error {
-	logger.Info("embedding backfill worker starting",
-		zap.Duration("interval", w.interval),
-		zap.Int("batch_size", w.batchSize),
-	)
+// Name returns worker name
+func (w *EmbeddingBackfillWorker) Name() string {
+	return "embedding_backfill"
+}
 
-	// Run immediately on start
+// Run executes one iteration - backfills missing embeddings
+// Called periodically by pkg/worker.PeriodicWorker
+func (w *EmbeddingBackfillWorker) Run(ctx context.Context) error {
 	w.backfillMissingEmbeddings(ctx)
-
-	// Then run periodically
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("embedding backfill worker stopped")
-			return ctx.Err()
-
-		case <-ticker.C:
-			w.backfillMissingEmbeddings(ctx)
-		}
-	}
+	return nil
 }
 
 // backfillMissingEmbeddings finds news without embeddings and generates them
@@ -132,4 +118,3 @@ func (w *EmbeddingBackfillWorker) backfillMissingEmbeddings(ctx context.Context)
 		)
 	}
 }
-

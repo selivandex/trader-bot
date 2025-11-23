@@ -20,10 +20,10 @@ const deepseekAPIURL = "https://api.deepseek.com/v1/chat/completions"
 
 // DeepSeekProvider implements AI provider for DeepSeek
 type DeepSeekProvider struct {
-	apiKey         string
-	enabled        bool
 	client         *http.Client
 	strategyParams *models.StrategyParameters
+	apiKey         string
+	enabled        bool
 }
 
 // NewDeepSeekProvider creates new DeepSeek provider

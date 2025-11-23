@@ -9,7 +9,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"go.uber.org/zap"
 
+	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
 
@@ -471,7 +473,11 @@ func (r *Repository) DeleteAgent(ctx context.Context, agentID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			logger.Error("failed to rollback transaction", zap.Error(err))
+		}
+	}()
 
 	// Delete in correct order (respecting foreign keys)
 	tables := []string{
@@ -1305,11 +1311,11 @@ type AgentToRestore struct {
 	AgentID        string  `db:"agent_id"`
 	UserID         string  `db:"user_id"`
 	Symbol         string  `db:"symbol"`
-	Balance        float64 `db:"balance"`
-	InitialBalance float64 `db:"initial_balance"`
 	Exchange       string  `db:"exchange"`
 	APIKey         string  `db:"api_key"`
 	APISecret      string  `db:"api_secret"`
+	Balance        float64 `db:"balance"`
+	InitialBalance float64 `db:"initial_balance"`
 	Testnet        bool    `db:"testnet"`
 }
 
@@ -1427,11 +1433,11 @@ func (r *Repository) SaveThinkingCheckpoint(
 
 // ReasoningCheckpoint holds checkpoint data for resuming
 type ReasoningCheckpoint struct {
+	StartedAt         time.Time `db:"started_at"`
 	SessionID         string    `db:"session_id"`
 	AgentID           string    `db:"agent_id"`
 	CheckpointState   []byte    `db:"checkpoint_state"`
 	CheckpointHistory []byte    `db:"checkpoint_history"`
-	StartedAt         time.Time `db:"started_at"`
 }
 
 // GetInterruptedSession retrieves interrupted reasoning session for agent
@@ -1511,4 +1517,75 @@ func (r *Repository) DeleteCheckpoint(ctx context.Context, sessionID string) err
 
 	_, err := r.db.ExecContext(ctx, query, sessionID)
 	return err
+}
+
+// GetLastOpenDecisionForSymbol retrieves last decision that opened position for symbol
+func (r *Repository) GetLastOpenDecisionForSymbol(ctx context.Context, agentID, symbol string) (*models.AgentDecision, error) {
+	query := `
+		SELECT id, agent_id, symbol, action, confidence, reason,
+		       technical_score, news_score, onchain_score, sentiment_score,
+		       final_score, executed, execution_price, execution_size,
+		       order_id, stop_loss_order_id, take_profit_order_id, outcome, created_at
+		FROM agent_decisions
+		WHERE agent_id = $1 AND symbol = $2
+		  AND action IN ('open_long', 'open_short')
+		  AND executed = true
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	var decision models.AgentDecision
+	var executionPrice, executionSize sql.NullString
+	var orderID, slOrderID, tpOrderID, outcome sql.NullString
+
+	err := r.db.QueryRowContext(ctx, query, agentID, symbol).Scan(
+		&decision.ID,
+		&decision.AgentID,
+		&decision.Symbol,
+		&decision.Action,
+		&decision.Confidence,
+		&decision.Reason,
+		&decision.TechnicalScore,
+		&decision.NewsScore,
+		&decision.OnChainScore,
+		&decision.SentimentScore,
+		&decision.FinalScore,
+		&decision.Executed,
+		&executionPrice,
+		&executionSize,
+		&orderID,
+		&slOrderID,
+		&tpOrderID,
+		&outcome,
+		&decision.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("no open decision found for symbol %s", symbol)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last open decision: %w", err)
+	}
+
+	// Parse optional fields
+	if executionPrice.Valid {
+		decision.ExecutionPrice = models.DecimalFromString(executionPrice.String)
+	}
+	if executionSize.Valid {
+		decision.ExecutionSize = models.DecimalFromString(executionSize.String)
+	}
+	if orderID.Valid {
+		decision.OrderID = orderID.String
+	}
+	if slOrderID.Valid {
+		decision.StopLossOrderID = slOrderID.String
+	}
+	if tpOrderID.Valid {
+		decision.TakeProfitOrderID = tpOrderID.String
+	}
+	if outcome.Valid {
+		decision.Outcome = outcome.String
+	}
+
+	return &decision, nil
 }

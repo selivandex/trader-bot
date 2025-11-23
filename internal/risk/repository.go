@@ -21,12 +21,12 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // RiskEvent represents a risk event record
 type RiskEvent struct {
-	ID          int64                  `db:"id"`
-	UserID      int64                  `db:"user_id"`
+	CreatedAt   time.Time              `db:"created_at"`
+	Data        map[string]interface{} `db:"data"`
 	EventType   string                 `db:"event_type"`
 	Description string                 `db:"description"`
-	Data        map[string]interface{} `db:"data"`
-	CreatedAt   time.Time              `db:"created_at"`
+	ID          int64                  `db:"id"`
+	UserID      int64                  `db:"user_id"`
 }
 
 // LogRiskEvent logs a risk event to database

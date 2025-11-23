@@ -117,21 +117,6 @@ func (r *repositoryAdapter) GetInsightsInPeriod(ctx context.Context, agentID str
 	return []string{}, nil
 }
 
-// ensureDependencies ensures newsCache and marketRepo are available
-func (am *AgenticManager) ensureDependencies() error {
-	if am.newsCache == nil && am.newsAggregator != nil {
-		// Extract cache from aggregator if available
-		// For now, we'll need to add a method to aggregator to expose cache
-		logger.Warn("newsCache not available, toolkit news features will be limited")
-	}
-
-	if am.marketRepo == nil {
-		logger.Warn("marketRepo not available, toolkit market features will be limited")
-	}
-
-	return nil
-}
-
 // Fields to add to AgenticManager
 // These should be added to the AgenticManager struct in manager.go:
 //

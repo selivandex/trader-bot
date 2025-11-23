@@ -41,106 +41,108 @@ func (s *AgentSpecialization) Validate() error {
 
 // AgentConfig defines agent configuration and parameters
 type AgentConfig struct {
-	ID                  string              `json:"id" db:"id"`
-	UserID              string              `json:"user_id" db:"user_id"`
-	Name                string              `json:"name" db:"name"`
+	UpdatedAt           time.Time           `json:"updated_at" db:"updated_at"`
+	CreatedAt           time.Time           `json:"created_at" db:"created_at"`
+	ValidationConfig    *ValidationConfig   `json:"validation_config" db:"validation_config"`
 	Personality         AgentPersonality    `json:"personality" db:"personality"`
-	Specialization      AgentSpecialization `json:"specialization" db:"specialization"`       // JSONB
-	Strategy            StrategyParameters  `json:"strategy" db:"strategy"`                   // JSONB
-	ValidationConfig    *ValidationConfig   `json:"validation_config" db:"validation_config"` // JSONB
+	ID                  string              `json:"id" db:"id"`
+	MinWhaleTransaction decimal.Decimal     `json:"min_whale_transaction" db:"min_whale_transaction"`
+	Name                string              `json:"name" db:"name"`
+	UserID              string              `json:"user_id" db:"user_id"`
+	Strategy            StrategyParameters  `json:"strategy" db:"strategy"`
+	Specialization      AgentSpecialization `json:"specialization" db:"specialization"`
 	DecisionInterval    time.Duration       `json:"decision_interval" db:"decision_interval"`
 	MinNewsImpact       float64             `json:"min_news_impact" db:"min_news_impact"`
-	MinWhaleTransaction decimal.Decimal     `json:"min_whale_transaction" db:"min_whale_transaction"`
+	LearningRate        float64             `json:"learning_rate" db:"learning_rate"`
 	InvertSentiment     bool                `json:"invert_sentiment" db:"invert_sentiment"`
-	LearningRate        float64             `json:"learning_rate" db:"learning_rate"` // 0.0 - 1.0
 	IsActive            bool                `json:"is_active" db:"is_active"`
-	CreatedAt           time.Time           `json:"created_at" db:"created_at"`
-	UpdatedAt           time.Time           `json:"updated_at" db:"updated_at"`
 }
 
 // ValidationConfig configures validator council for agent
 type ValidationConfig struct {
+	MinConfidenceForValidation int     `json:"min_confidence_for_validation"`
+	ConsensusThreshold         float64 `json:"consensus_threshold"`
 	Enabled                    bool    `json:"enabled"`
-	MinConfidenceForValidation int     `json:"min_confidence_for_validation"` // 60 = validate if confidence >= 60%
-	ConsensusThreshold         float64 `json:"consensus_threshold"`           // 0.66 = 2/3 must approve
-	RequireUnanimous           bool    `json:"require_unanimous"`             // If true, ALL validators must approve
-	ValidateOnlyHighRisk       bool    `json:"validate_only_high_risk"`       // Only validate high leverage/size trades
+	RequireUnanimous           bool    `json:"require_unanimous"`
+	ValidateOnlyHighRisk       bool    `json:"validate_only_high_risk"`
 }
 
 // AgentState represents runtime state of an agent
 type AgentState struct {
-	ID             string          `json:"id" db:"id"`
-	AgentID        string          `json:"agent_id" db:"agent_id"`
-	Symbol         string          `json:"symbol" db:"symbol"`
-	Balance        decimal.Decimal `json:"balance" db:"balance"`
-	InitialBalance decimal.Decimal `json:"initial_balance" db:"initial_balance"`
-	Equity         decimal.Decimal `json:"equity" db:"equity"`
-	PnL            decimal.Decimal `json:"pnl" db:"pnl"`
-	TotalTrades    int             `json:"total_trades" db:"total_trades"`
-	WinningTrades  int             `json:"winning_trades" db:"winning_trades"`
-	LosingTrades   int             `json:"losing_trades" db:"losing_trades"`
-	WinRate        float64         `json:"win_rate" db:"win_rate"`
-	IsTrading      bool            `json:"is_trading" db:"is_trading"`
-	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
+	UpdatedAt          time.Time       `json:"updated_at" db:"updated_at"`
+	PnL                decimal.Decimal `json:"pnl" db:"pnl"`
+	Symbol             string          `json:"symbol" db:"symbol"`
+	Balance            decimal.Decimal `json:"balance" db:"balance"`
+	InitialBalance     decimal.Decimal `json:"initial_balance" db:"initial_balance"`
+	Equity             decimal.Decimal `json:"equity" db:"equity"`
+	ID                 string          `json:"id" db:"id"`
+	AgentID            string          `json:"agent_id" db:"agent_id"`
+	TotalTrades        int             `json:"total_trades" db:"total_trades"`
+	WinningTrades      int             `json:"winning_trades" db:"winning_trades"`
+	LosingTrades       int             `json:"losing_trades" db:"losing_trades"`
+	WinRate            float64         `json:"win_rate" db:"win_rate"`
+	IsTrading          bool            `json:"is_trading" db:"is_trading"`
+	LastKnownPosition  *Position       `json:"last_known_position,omitempty" db:"-"`  // Not persisted, runtime only
+	PositionJustClosed bool            `json:"position_just_closed,omitempty" db:"-"` // Not persisted, runtime only
 }
 
 // AgentDecision represents a decision made by an agent
 type AgentDecision struct {
-	ID                 string          `json:"id" db:"id"`
+	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
+	ClosedAt           *time.Time      `json:"closed_at" db:"closed_at"`
+	OrderID            string          `json:"order_id" db:"order_id"`
+	ValidatorConsensus string          `json:"validator_consensus" db:"validator_consensus"`
 	AgentID            string          `json:"agent_id" db:"agent_id"`
-	Symbol             string          `json:"symbol" db:"symbol"`
-	Action             AIAction        `json:"action" db:"action"`
-	Confidence         int             `json:"confidence" db:"confidence"`
 	Reason             string          `json:"reason" db:"reason"`
-	TechnicalScore     float64         `json:"technical_score" db:"technical_score"`
-	NewsScore          float64         `json:"news_score" db:"news_score"`
-	OnChainScore       float64         `json:"onchain_score" db:"onchain_score"`
-	SentimentScore     float64         `json:"sentiment_score" db:"sentiment_score"`
-	FinalScore         float64         `json:"final_score" db:"final_score"`
-	MarketData         string          `json:"market_data" db:"market_data"` // JSONB
-	Executed           bool            `json:"executed" db:"executed"`
+	Symbol             string          `json:"symbol" db:"symbol"`
+	Outcome            string          `json:"outcome" db:"outcome"`
+	CoTTrace           string          `json:"cot_trace" db:"cot_trace"`
+	Action             AIAction        `json:"action" db:"action"`
+	TakeProfitOrderID  string          `json:"take_profit_order_id" db:"take_profit_order_id"`
+	MarketData         string          `json:"market_data" db:"market_data"`
+	StopLossOrderID    string          `json:"stop_loss_order_id" db:"stop_loss_order_id"`
 	ExecutionPrice     decimal.Decimal `json:"execution_price" db:"execution_price"`
 	ExecutionSize      decimal.Decimal `json:"execution_size" db:"execution_size"`
-	OrderID            string          `json:"order_id" db:"order_id"`                         // Exchange order ID
-	StopLossOrderID    string          `json:"stop_loss_order_id" db:"stop_loss_order_id"`     // SL order ID
-	TakeProfitOrderID  string          `json:"take_profit_order_id" db:"take_profit_order_id"` // TP order ID
-	ValidatorConsensus string          `json:"validator_consensus" db:"validator_consensus"`   // JSONB
-	CoTTrace           string          `json:"cot_trace" db:"cot_trace"`                       // JSONB - Chain-of-Thought trace
-	Outcome            string          `json:"outcome" db:"outcome"`                           // JSONB with PnL, duration, etc
-	ClosedAt           *time.Time      `json:"closed_at" db:"closed_at"`                       // When position closed
-	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
+	ID                 string          `json:"id" db:"id"`
+	FinalScore         float64         `json:"final_score" db:"final_score"`
+	SentimentScore     float64         `json:"sentiment_score" db:"sentiment_score"`
+	OnChainScore       float64         `json:"onchain_score" db:"onchain_score"`
+	NewsScore          float64         `json:"news_score" db:"news_score"`
+	TechnicalScore     float64         `json:"technical_score" db:"technical_score"`
+	Confidence         int             `json:"confidence" db:"confidence"`
+	Executed           bool            `json:"executed" db:"executed"`
 }
 
 // AgentMemory stores learning data for adaptation
 type AgentMemory struct {
+	LastAdaptedAt         time.Time `json:"last_adapted_at" db:"last_adapted_at"`
+	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 	ID                    string    `json:"id" db:"id"`
 	AgentID               string    `json:"agent_id" db:"agent_id"`
+	BestMarketConditions  string    `json:"best_market_conditions" db:"best_market_conditions"`
+	WorstMarketConditions string    `json:"worst_market_conditions" db:"worst_market_conditions"`
 	TechnicalSuccessRate  float64   `json:"technical_success_rate" db:"technical_success_rate"`
 	NewsSuccessRate       float64   `json:"news_success_rate" db:"news_success_rate"`
 	OnChainSuccessRate    float64   `json:"onchain_success_rate" db:"onchain_success_rate"`
 	SentimentSuccessRate  float64   `json:"sentiment_success_rate" db:"sentiment_success_rate"`
-	BestMarketConditions  string    `json:"best_market_conditions" db:"best_market_conditions"`   // JSONB
-	WorstMarketConditions string    `json:"worst_market_conditions" db:"worst_market_conditions"` // JSONB
 	TotalDecisions        int       `json:"total_decisions" db:"total_decisions"`
 	AdaptationCount       int       `json:"adaptation_count" db:"adaptation_count"`
-	LastAdaptedAt         time.Time `json:"last_adapted_at" db:"last_adapted_at"`
-	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // AgentTournament represents a competition between agents
 type AgentTournament struct {
+	StartedAt     time.Time       `json:"started_at" db:"started_at"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	EndedAt       *time.Time      `json:"ended_at" db:"ended_at"`
+	WinnerAgentID *string         `json:"winner_agent_id" db:"winner_agent_id"`
 	ID            string          `json:"id" db:"id"`
 	UserID        string          `json:"user_id" db:"user_id"`
 	Name          string          `json:"name" db:"name"`
-	Symbols       []string        `json:"symbols" db:"symbols"` // Array
 	StartBalance  decimal.Decimal `json:"start_balance" db:"start_balance"`
+	Results       string          `json:"results" db:"results"`
+	Symbols       []string        `json:"symbols" db:"symbols"`
 	Duration      time.Duration   `json:"duration" db:"duration"`
-	StartedAt     time.Time       `json:"started_at" db:"started_at"`
-	EndedAt       *time.Time      `json:"ended_at" db:"ended_at"`
 	IsActive      bool            `json:"is_active" db:"is_active"`
-	WinnerAgentID *string         `json:"winner_agent_id" db:"winner_agent_id"`
-	Results       string          `json:"results" db:"results"` // JSONB
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 }
 
 // AgentScore represents tournament performance metrics
@@ -148,13 +150,13 @@ type AgentScore struct {
 	AgentID      string          `json:"agent_id"`
 	AgentName    string          `json:"agent_name"`
 	TotalReturn  decimal.Decimal `json:"total_return"`
+	AvgTradePnL  decimal.Decimal `json:"avg_trade_pnl"`
 	ReturnPct    float64         `json:"return_pct"`
 	WinRate      float64         `json:"win_rate"`
 	MaxDrawdown  float64         `json:"max_drawdown"`
 	SharpeRatio  float64         `json:"sharpe_ratio"`
 	TradeCount   int             `json:"trade_count"`
 	ProfitFactor float64         `json:"profit_factor"`
-	AvgTradePnL  decimal.Decimal `json:"avg_trade_pnl"`
 }
 
 // WeightedDecisionInput holds all signals with their scores
@@ -168,10 +170,10 @@ type WeightedDecisionInput struct {
 
 // SignalScore represents score for a specific signal type
 type SignalScore struct {
-	Score      float64 // 0-100
-	Confidence float64 // 0-1
-	Direction  string  // "bullish", "bearish", "neutral"
+	Direction  string
 	Reason     string
+	Score      float64
+	Confidence float64
 }
 
 // AgentMetric represents performance snapshot for ClickHouse

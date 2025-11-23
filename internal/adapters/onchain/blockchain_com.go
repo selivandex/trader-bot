@@ -19,9 +19,9 @@ const blockchainAPIURL = "https://blockchain.info"
 
 // BlockchainComAdapter implements OnChainProvider for Blockchain.com API (BTC only, free)
 type BlockchainComAdapter struct {
-	enabled       bool
-	client        *http.Client
 	priceProvider price.PriceProvider
+	client        *http.Client
+	enabled       bool
 }
 
 // NewBlockchainComAdapter creates new Blockchain.com adapter
@@ -62,7 +62,7 @@ func (bc *BlockchainComAdapter) FetchRecentTransactions(ctx context.Context, min
 	// Fetch unconfirmed transactions (mempool)
 	url := fmt.Sprintf("%s/unconfirmed-transactions?format=json", blockchainAPIURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -81,18 +81,19 @@ func (bc *BlockchainComAdapter) FetchRecentTransactions(ctx context.Context, min
 	var result struct {
 		Txs []struct {
 			Hash   string `json:"hash"`
-			Time   int64  `json:"time"`
-			Size   int    `json:"size"`
 			Inputs []struct {
 				PrevOut struct {
 					Addr  string `json:"addr"`
-					Value int64  `json:"value"` // Satoshis
+					Value int64  `json:"value"`
 				} `json:"prev_out"`
 			} `json:"inputs"`
-			Out []struct {
+			Out []struct // Satoshis
+			{
 				Addr  string `json:"addr"`
-				Value int64  `json:"value"` // Satoshis
+				Value int64  `json:"value"`
 			} `json:"out"`
+			Time int64 `json:"time"`
+			Size int   `json:"size"` // Satoshis
 		} `json:"txs"`
 	}
 

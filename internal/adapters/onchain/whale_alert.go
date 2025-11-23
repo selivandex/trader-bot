@@ -18,9 +18,9 @@ const whaleAlertAPIURL = "https://api.whale-alert.io/v1/transactions"
 
 // WhaleAlertAdapter implements OnChainProvider for Whale Alert API
 type WhaleAlertAdapter struct {
+	client  *http.Client
 	apiKey  string
 	enabled bool
-	client  *http.Client
 }
 
 // Legacy alias for backward compatibility
@@ -69,7 +69,7 @@ func (wa *WhaleAlertAdapter) FetchRecentTransactions(ctx context.Context, minVal
 	url := fmt.Sprintf("%s?api_key=%s&start=%d&min_value=%d",
 		whaleAlertAPIURL, wa.apiKey, start, minValueUSD)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -88,14 +88,7 @@ func (wa *WhaleAlertAdapter) FetchRecentTransactions(ctx context.Context, minVal
 	var result struct {
 		Result       string `json:"result"`
 		Transactions []struct {
-			Blockchain      string  `json:"blockchain"`
-			Symbol          string  `json:"symbol"`
-			Hash            string  `json:"hash"`
-			Amount          float64 `json:"amount"`
-			AmountUSD       float64 `json:"amount_usd"`
-			Timestamp       int64   `json:"timestamp"`
-			TransactionType string  `json:"transaction_type"`
-			From            struct {
+			From struct {
 				Address string `json:"address"`
 				Owner   string `json:"owner"`
 			} `json:"from"`
@@ -103,6 +96,13 @@ func (wa *WhaleAlertAdapter) FetchRecentTransactions(ctx context.Context, minVal
 				Address string `json:"address"`
 				Owner   string `json:"owner"`
 			} `json:"to"`
+			Blockchain      string  `json:"blockchain"`
+			Symbol          string  `json:"symbol"`
+			Hash            string  `json:"hash"`
+			TransactionType string  `json:"transaction_type"`
+			Amount          float64 `json:"amount"`
+			AmountUSD       float64 `json:"amount_usd"`
+			Timestamp       int64   `json:"timestamp"`
 		} `json:"transactions"`
 	}
 

@@ -14,16 +14,16 @@ import (
 
 // AgentPortfolioTracker tracks portfolio for a single agent
 type AgentPortfolioTracker struct {
-	mu             sync.RWMutex
-	agentID        string // UUID
-	symbol         string
 	exchange       exchange.Exchange
 	repository     *Repository
+	agentID        string
+	symbol         string
 	initialBalance decimal.Decimal
 	currentBalance decimal.Decimal
 	equity         decimal.Decimal
 	peakEquity     decimal.Decimal
 	totalPnL       decimal.Decimal
+	mu             sync.RWMutex
 }
 
 // NewAgentPortfolioTracker creates new portfolio tracker for agent

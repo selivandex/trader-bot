@@ -16,16 +16,16 @@ import (
 
 // BybitWebSocket handles WebSocket connection to Bybit
 type BybitWebSocket struct {
+	ctx            context.Context
 	conn           *websocket.Conn
+	candleChan     chan models.Candle
+	errorChan      chan error
+	cancel         context.CancelFunc
 	url            string
 	symbols        []string
 	timeframes     []string
-	candleChan     chan models.Candle
-	errorChan      chan error
-	mu             sync.Mutex
 	reconnectDelay time.Duration
-	ctx            context.Context
-	cancel         context.CancelFunc
+	mu             sync.Mutex
 }
 
 // BybitWSMessage represents Bybit WebSocket message structure
@@ -38,8 +38,6 @@ type BybitWSMessage struct {
 
 // BybitKlineData represents Bybit kline data
 type BybitKlineData struct {
-	Start     int64  `json:"start"`
-	End       int64  `json:"end"`
 	Interval  string `json:"interval"`
 	Open      string `json:"open"`
 	Close     string `json:"close"`
@@ -47,8 +45,10 @@ type BybitKlineData struct {
 	Low       string `json:"low"`
 	Volume    string `json:"volume"`
 	Turnover  string `json:"turnover"`
-	Confirm   bool   `json:"confirm"`
+	Start     int64  `json:"start"`
+	End       int64  `json:"end"`
 	Timestamp int64  `json:"timestamp"`
+	Confirm   bool   `json:"confirm"`
 }
 
 // NewBybitWebSocket creates new Bybit WebSocket connection
@@ -309,7 +309,7 @@ func parseBybitTopic(topic string) (symbol, timeframe string) {
 	// Topic format: "kline.5.BTCUSDT"
 	// Extract symbol and convert interval back to standard format
 	var interval, bybitSymbol string
-	fmt.Sscanf(topic, "kline.%s.%s", &interval, &bybitSymbol)
+	_, _ = fmt.Sscanf(topic, "kline.%s.%s", &interval, &bybitSymbol)
 
 	// Convert BTCUSDT -> BTC/USDT
 	if len(bybitSymbol) >= 6 {

@@ -970,8 +970,13 @@ func (ab *AgentBot) handleBanUser(ctx context.Context, telegramID int64, args []
 	// Get user info to notify
 	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
 
+	username := "Unknown"
+	if userStats != nil {
+		username = userStats.Username
+	}
+
 	ab.sendTemplate(telegramID, "user_banned.tmpl", map[string]interface{}{
-		"Username": userStats.Username,
+		"Username": username,
 		"Reason":   reason,
 	})
 
@@ -1001,8 +1006,13 @@ func (ab *AgentBot) handleUnbanUser(ctx context.Context, telegramID int64, args 
 
 	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
 
+	username := "Unknown"
+	if userStats != nil {
+		username = userStats.Username
+	}
+
 	ab.sendTemplate(telegramID, "user_unbanned.tmpl", map[string]interface{}{
-		"Username": userStats.Username,
+		"Username": username,
 	})
 
 	// Notify unbanned user
@@ -1029,8 +1039,13 @@ func (ab *AgentBot) handleDeactivateUser(ctx context.Context, telegramID int64, 
 
 	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
 
+	username := "Unknown"
+	if userStats != nil {
+		username = userStats.Username
+	}
+
 	ab.sendTemplate(telegramID, "user_deactivated.tmpl", map[string]interface{}{
-		"Username": userStats.Username,
+		"Username": username,
 	})
 
 	// Notify deactivated user
@@ -1057,8 +1072,13 @@ func (ab *AgentBot) handleActivateUser(ctx context.Context, telegramID int64, ar
 
 	userStats, _ := ab.adminRepo.GetUserByID(ctx, userID)
 
+	username := "Unknown"
+	if userStats != nil {
+		username = userStats.Username
+	}
+
 	ab.sendTemplate(telegramID, "user_activated.tmpl", map[string]interface{}{
-		"Username": userStats.Username,
+		"Username": username,
 	})
 
 	// Notify activated user
@@ -1151,13 +1171,17 @@ func (ab *AgentBot) handleUserInfo(ctx context.Context, telegramID int64, args [
 
 func (ab *AgentBot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	ab.api.Send(msg)
+	if _, err := ab.api.Send(msg); err != nil {
+		logger.Error("failed to send telegram message", zap.Error(err))
+	}
 }
 
 func (ab *AgentBot) sendMessageMarkdown(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	ab.api.Send(msg)
+	if _, err := ab.api.Send(msg); err != nil {
+		logger.Error("failed to send telegram markdown message", zap.Error(err))
+	}
 }
 
 // sendTemplate sends message using template

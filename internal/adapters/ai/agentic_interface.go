@@ -61,41 +61,41 @@ type ChainOfThought struct {
 
 // ThoughtStep represents one step in agent's reasoning
 type ThoughtStep struct {
-	StepNumber int     `json:"step_number"`
-	Type       string  `json:"type"` // "observation", "reasoning", "conclusion"
+	Type       string  `json:"type"`
 	Content    string  `json:"content"`
+	StepNumber int     `json:"step_number"`
 	Confidence float64 `json:"confidence"`
 }
 
 // ReasoningTrace captures agent's complete decision-making process
 type ReasoningTrace struct {
+	Decision         *models.AIDecision        `json:"decision"`
+	ChainOfThought   *ChainOfThought           `json:"chain_of_thought"`
+	ToolUsage        *ToolUsageTrace           `json:"tool_usage,omitempty"`
 	Observation      string                    `json:"observation"`
+	FinalReasoning   string                    `json:"final_reasoning"`
 	RecalledMemories []models.SemanticMemory   `json:"recalled_memories"`
 	GeneratedOptions []models.TradingOption    `json:"generated_options"`
 	Evaluations      []models.OptionEvaluation `json:"evaluations"`
-	FinalReasoning   string                    `json:"final_reasoning"`
-	Decision         *models.AIDecision        `json:"decision"`
-	ChainOfThought   *ChainOfThought           `json:"chain_of_thought"`
-	ToolUsage        *ToolUsageTrace           `json:"tool_usage,omitempty"` // NEW: Track tool calls if tools were used
 }
 
 // ToolUsageTrace captures all tool invocations during reasoning
 type ToolUsageTrace struct {
+	StartTime time.Time     `json:"start_time"`
+	EndTime   time.Time     `json:"end_time"`
 	SessionID string        `json:"session_id"`
 	AgentID   string        `json:"agent_id"`
 	ToolCalls []ToolCall    `json:"tool_calls"`
 	TotalTime time.Duration `json:"total_time"`
-	StartTime time.Time     `json:"start_time"`
-	EndTime   time.Time     `json:"end_time"`
 }
 
 // ToolCall represents one tool invocation
 type ToolCall struct {
-	ToolName   string                 `json:"tool_name"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Result     interface{}            `json:"result,omitempty"`
-	Error      string                 `json:"error,omitempty"`
 	StartTime  time.Time              `json:"start_time"`
+	Result     interface{}            `json:"result,omitempty"`
+	Parameters map[string]interface{} `json:"parameters"`
+	ToolName   string                 `json:"tool_name"`
+	Error      string                 `json:"error,omitempty"`
 	Latency    time.Duration          `json:"latency"`
 	Success    bool                   `json:"success"`
 }

@@ -23,9 +23,9 @@ const (
 
 // EtherscanAdapter implements OnChainProvider for Etherscan API (USDT/USDC/ETH, free)
 type EtherscanAdapter struct {
+	client  *http.Client
 	apiKey  string
 	enabled bool
-	client  *http.Client
 }
 
 // NewEtherscanAdapter creates new Etherscan adapter
@@ -82,7 +82,7 @@ func (es *EtherscanAdapter) fetchTokenTransfers(ctx context.Context, contractAdd
 	url := fmt.Sprintf("%s?module=account&action=tokentx&contractaddress=%s&apikey=%s&sort=desc",
 		etherscanAPIURL, contractAddress, es.apiKey)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

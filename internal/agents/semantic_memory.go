@@ -3,7 +3,6 @@ package agents
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"time"
 
@@ -19,8 +18,8 @@ import (
 // Agents remember past experiences and recall relevant ones for current situations
 type SemanticMemoryManager struct {
 	repository      *Repository
-	aiProvider      ai.AgenticProvider  // For summaries
-	embeddingClient *embeddings.Client  // Unified embedding client
+	aiProvider      ai.AgenticProvider // For summaries
+	embeddingClient *embeddings.Client // Unified embedding client
 }
 
 // NewSemanticMemoryManager creates new semantic memory manager
@@ -171,7 +170,9 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 
 		// Update access count for personal memories
 		if result[i].AgentID != "collective" {
-			smm.repository.UpdateMemoryAccess(ctx, result[i].ID)
+			if err := smm.repository.UpdateMemoryAccess(ctx, result[i].ID); err != nil {
+				logger.Error("failed to update memory access", zap.Error(err))
+			}
 		}
 	}
 
@@ -203,29 +204,6 @@ func (smm *SemanticMemoryManager) Forget(ctx context.Context, agentID string, th
 	)
 
 	return nil
-}
-
-// cosineSimilarity calculates cosine similarity between two vectors (kept for reference)
-func (smm *SemanticMemoryManager) cosineSimilarity(a, b []float32) float64 {
-	if len(a) != len(b) {
-		return 0.0
-	}
-
-	dotProduct := float32(0.0)
-	normA := float32(0.0)
-	normB := float32(0.0)
-
-	for i := 0; i < len(a); i++ {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-
-	if normA == 0 || normB == 0 {
-		return 0.0
-	}
-
-	return float64(dotProduct / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB)))))
 }
 
 // mergePersonalAndCollective combines personal and collective memories

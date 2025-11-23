@@ -273,7 +273,9 @@ func (re *ReflectionEngine) ReflectPeriodically(ctx context.Context, symbol stri
 		}
 
 		// Increment adaptation count
-		re.repository.IncrementAdaptationCount(ctx, re.config.ID)
+		if err := re.repository.IncrementAdaptationCount(ctx, re.config.ID); err != nil {
+			logger.Error("failed to increment adaptation count", zap.Error(err))
+		}
 	}
 
 	return nil

@@ -38,6 +38,7 @@ import (
 	"github.com/selivandex/trader-bot/pkg/metrics"
 	"github.com/selivandex/trader-bot/pkg/models"
 	"github.com/selivandex/trader-bot/pkg/templates"
+	"github.com/selivandex/trader-bot/pkg/worker"
 )
 
 func main() {
@@ -119,13 +120,10 @@ func run(ctx context.Context) error {
 	// Initialize embedding client with deduplication
 	embeddingClient := initEmbeddingClient(cfg, db, metricsBuffer)
 
-	newsAggregator, newsCache, err := initNewsSystem(ctx, cfg, db, aiProviders, embeddingClient, redisClient)
+	newsAggregator, newsCache, newsEvaluator, err := initNewsSystem(ctx, cfg, db, aiProviders, embeddingClient, redisClient)
 	if err != nil {
 		return err
 	}
-
-	// Start background workers
-	startBackgroundWorkers(ctx, cfg, db, chDB, marketRepo)
 
 	// Initialize repositories
 	repos := initRepositories(db)
@@ -151,6 +149,9 @@ func run(ctx context.Context) error {
 	}
 	agenticManager := initAgenticSystem(ctx, cfg, db, chDBConn, redisClient, marketRepo, newsAggregator, newsCache, allTemplates, aiProviders, notifier, embeddingClient, metricsBuffer)
 
+	// Start background workers (after agenticManager initialized)
+	workerGroup := startBackgroundWorkers(ctx, cfg, db, chDB, marketRepo, agenticManager, repos.agentRepo, newsAggregator, newsCache, newsEvaluator)
+
 	// Start health server
 	healthServer := startHealthServer(cfg, db, redisClient, agenticManager, len(aiProviders))
 
@@ -161,7 +162,7 @@ func run(ctx context.Context) error {
 	<-ctx.Done()
 
 	// Perform graceful shutdown
-	return performGracefulShutdown(healthServer, agenticManager, db, redisClient)
+	return performGracefulShutdown(healthServer, agenticManager, workerGroup, db, redisClient)
 }
 
 // repositorySet holds all initialized repositories
@@ -449,10 +450,10 @@ func initAIProviders(cfg *config.Config) ([]ai.Provider, error) {
 }
 
 // initNewsSystem initializes news aggregation and analysis
-func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, aiProviders []ai.Provider, embeddingClient *embeddings.Client, redisClient *redisAdapter.Client) (*news.Aggregator, *news.Cache, error) {
+func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, aiProviders []ai.Provider, embeddingClient *embeddings.Client, redisClient *redisAdapter.Client) (*news.Aggregator, *news.Cache, ai.NewsEvaluatorInterface, error) {
 	if !cfg.News.Enabled {
 		logger.Info("news system disabled")
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	sentimentAnalyzer := sentiment.NewAnalyzer()
@@ -478,7 +479,7 @@ func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, ai
 
 	if len(newsProviders) == 0 {
 		logger.Warn("no news providers configured")
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	newsAggregator := news.NewAggregator(newsProviders, cfg.News.Keywords, newsCache)
@@ -489,28 +490,12 @@ func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, ai
 		newsEvaluator = createNewsEvaluator(cfg, aiProviders)
 	}
 
-	// Start news worker
-	newsWorker := workers.NewNewsWorker(newsAggregator, newsCache, newsEvaluator, 10*time.Minute, cfg.News.Keywords)
-	go func() {
-		if err := newsWorker.Start(ctx); err != nil && err != context.Canceled {
-			logger.Error("news worker error", zap.Error(err))
-		}
-	}()
-
-	// Start embedding backfill worker (1 hour interval)
-	embeddingBackfillWorker := workers.NewEmbeddingBackfillWorker(newsCache, newsRepo, 1*time.Hour)
-	go func() {
-		if err := embeddingBackfillWorker.Start(ctx); err != nil && err != context.Canceled {
-			logger.Error("embedding backfill worker error", zap.Error(err))
-		}
-	}()
-
 	logger.Info("news system initialized",
 		zap.Int("providers", len(newsProviders)),
 		zap.Strings("keywords", cfg.News.Keywords),
 	)
 
-	return newsAggregator, newsCache, nil
+	return newsAggregator, newsCache, newsEvaluator, nil
 }
 
 // createNewsEvaluator creates AI news evaluator
@@ -568,12 +553,38 @@ func createNewsEvaluator(cfg *config.Config, aiProviders []ai.Provider) ai.NewsE
 }
 
 // startBackgroundWorkers starts all background workers
-func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *database.DB, chDB *database.DB, marketRepo *market.Repository) {
+func startBackgroundWorkers(
+	ctx context.Context,
+	cfg *config.Config,
+	db *database.DB,
+	chDB *database.DB,
+	marketRepo *market.Repository,
+	agenticManager *agents.AgenticManager,
+	agentRepo *agents.Repository,
+	newsAggregator *news.Aggregator,
+	newsCache *news.Cache,
+	newsEvaluator ai.NewsEvaluatorInterface,
+) *worker.WorkerGroup {
 	workersRepo := workers.NewRepository(db.DB())
 	newsRepo := news.NewRepository(db.DB())
 
+	// Create WorkerGroup for centralized graceful shutdown
+	wg := worker.NewWorkerGroup(ctx)
+
 	symbols := []string{"BTC/USDT", "ETH/USDT"}
 	timeframes := []string{"1m", "5m", "15m", "1h", "4h"}
+
+	// ===== NEWS WORKERS =====
+
+	// News fetcher (10min interval)
+	newsWorker := workers.NewNewsWorker(newsAggregator, newsCache, newsEvaluator, 10*time.Minute, cfg.News.Keywords)
+	wg.Add(newsWorker, 10*time.Minute)
+
+	// Embedding backfill (1h interval)
+	embeddingBackfillWorker := workers.NewEmbeddingBackfillWorker(newsCache, newsRepo, 1*time.Hour)
+	wg.Add(embeddingBackfillWorker, 1*time.Hour)
+
+	// ===== MARKET DATA WORKERS =====
 
 	// If ClickHouse available, use batch writer + real-time worker
 	if chDB != nil {
@@ -597,45 +608,30 @@ func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *databas
 
 		logger.Info("✅ real-time market worker started (Bybit WebSocket → ClickHouse)")
 
-		// Also start polling fallback (for resilience)
+		// Polling fallback (for resilience)
 		mockExchange := &exchange.MockExchange{}
 		pollingWorker := workers.NewCandlesWorker(mockExchange, candleWriter, 5*time.Minute, symbols, timeframes)
+		wg.Add(pollingWorker, 5*time.Minute)
 
-		go func() {
-			if err := pollingWorker.Start(ctx); err != nil && err != context.Canceled {
-				logger.Error("polling worker error", zap.Error(err))
-			}
-		}()
-
-		logger.Info("✅ polling fallback worker started (5min interval)")
+		logger.Info("✅ polling fallback worker added (5min interval)")
 	} else {
 		// PostgreSQL fallback - NOT RECOMMENDED (no ClickHouse support yet)
 		logger.Warn("⚠️ ClickHouse disabled - market data features limited")
 	}
 
-	// Daily metrics worker
+	// ===== ANALYTICS WORKERS =====
+
+	// Daily metrics worker (24h interval)
 	dailyMetrics := workers.NewDailyMetricsWorker(workersRepo)
-	go func() {
-		if err := dailyMetrics.Start(ctx); err != nil && err != context.Canceled {
-			logger.Error("daily metrics worker error", zap.Error(err))
-		}
-	}()
+	wg.Add(dailyMetrics, 24*time.Hour)
 
-	// Sentiment aggregator
+	// Sentiment aggregator (5min interval)
 	sentimentAggregator := workers.NewSentimentAggregator(workersRepo, newsRepo, 5*time.Minute)
-	go func() {
-		if err := sentimentAggregator.Start(ctx); err != nil && err != context.Canceled {
-			logger.Error("sentiment aggregator error", zap.Error(err))
-		}
-	}()
+	wg.Add(sentimentAggregator, 5*time.Minute)
 
-	// Exchange flow aggregator
+	// Exchange flow aggregator (1h interval)
 	exchangeFlowAgg := workers.NewExchangeFlowAggregator(workersRepo, 1*time.Hour)
-	go func() {
-		if err := exchangeFlowAgg.Start(ctx); err != nil && err != context.Canceled {
-			logger.Error("exchange flow aggregator error", zap.Error(err))
-		}
-	}()
+	wg.Add(exchangeFlowAgg, 1*time.Hour)
 
 	// On-chain monitoring worker with multiple providers
 	if cfg.OnChain.Enabled {
@@ -668,21 +664,29 @@ func startBackgroundWorkers(ctx context.Context, cfg *config.Config, db *databas
 			// Use first provider for worker (can be extended to use aggregator)
 			primaryProvider := onchainProviders[0]
 			onchainWorker := workers.NewOnChainWorker(workersRepo, primaryProvider, 15*time.Minute, cfg.OnChain.MinValueUSD)
+			wg.Add(onchainWorker, 15*time.Minute)
 
-			go func() {
-				if err := onchainWorker.Start(ctx); err != nil && err != context.Canceled {
-					logger.Error("on-chain worker error", zap.Error(err))
-				}
-			}()
-
-			logger.Info("on-chain monitoring started",
+			logger.Info("✅ on-chain monitoring added",
 				zap.Int("providers", len(onchainProviders)),
 				zap.Int("min_value_usd", cfg.OnChain.MinValueUSD),
 			)
 		}
 	}
 
-	logger.Info("background workers started")
+	// ===== AGENT MONITORING WORKERS =====
+
+	// Position monitor worker - monitors SL/TP closures and triggers reflection
+	positionMonitor := workers.NewPositionMonitorWorker(agenticManager, agentRepo)
+	wg.Add(positionMonitor, 15*time.Second)
+
+	logger.Info("✅ position monitor worker added (15s interval)")
+
+	// Start all workers in group
+	wg.Start()
+
+	logger.Info("🚀 All workers started with centralized graceful shutdown")
+
+	return wg
 }
 
 // startHealthServer initializes and starts health check server for K8s probes
@@ -731,7 +735,7 @@ func startTelegramBot(ctx context.Context, cfg *config.Config, agenticManager *a
 }
 
 // performGracefulShutdown handles graceful shutdown of all components
-func performGracefulShutdown(healthServer *health.Server, agenticManager *agents.AgenticManager, db *database.DB, redisClient *redisAdapter.Client) error {
+func performGracefulShutdown(healthServer *health.Server, agenticManager *agents.AgenticManager, workerGroup *worker.WorkerGroup, db *database.DB, redisClient *redisAdapter.Client) error {
 	logger.Info("🛑 Shutdown signal received, starting graceful shutdown...")
 
 	// Mark service as not ready (stop accepting new traffic)
@@ -741,13 +745,19 @@ func performGracefulShutdown(healthServer *health.Server, agenticManager *agents
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer shutdownCancel()
 
-	// Shutdown agent manager first (stops all agents gracefully)
+	// 1. Stop background workers first
+	logger.Info("stopping background workers...")
+	if workerGroup != nil {
+		workerGroup.Stop(10 * time.Second)
+	}
+
+	// 2. Shutdown agent manager (stops all agents gracefully)
 	logger.Info("stopping agent manager...")
 	if err := agenticManager.Shutdown(); err != nil {
 		logger.Error("agent manager shutdown error", zap.Error(err))
 	}
 
-	// Close database connection
+	// 3. Close database connection
 	logger.Info("closing database connection...")
 	if err := db.Close(); err != nil {
 		logger.Error("database close error", zap.Error(err))
@@ -799,12 +809,7 @@ func createExchangeFactory(cfg *config.Config) func(string, string, string, bool
 func startAgentRecoveryWorker(ctx context.Context, agenticManager *agents.AgenticManager, exchangeFactory func(string, string, string, bool) (exchange.Exchange, error)) {
 	recoveryInterval := 5 * time.Minute
 	recoveryWorker := workers.NewAgentRecoveryWorker(agenticManager, exchangeFactory, recoveryInterval)
-
-	go func() {
-		if err := recoveryWorker.Start(ctx); err != nil && err != context.Canceled {
-			logger.Error("agent recovery worker error", zap.Error(err))
-		}
-	}()
+	worker.RunBackground(ctx, recoveryWorker, recoveryInterval)
 
 	logger.Info("🔄 periodic agent recovery worker started",
 		zap.Duration("interval", recoveryInterval),

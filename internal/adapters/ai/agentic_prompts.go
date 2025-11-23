@@ -199,9 +199,9 @@ type QuestionAnswer struct {
 
 // AdaptiveThoughtStep represents one thinking iteration (for template data)
 type AdaptiveThoughtStep struct {
-	Iteration  int     `json:"iteration"`
 	Action     string  `json:"action"`
 	Reasoning  string  `json:"reasoning"`
+	Iteration  int     `json:"iteration"`
 	Confidence float64 `json:"confidence"`
 }
 

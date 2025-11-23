@@ -72,6 +72,7 @@ const (
 
 // Ticker represents market ticker data
 type Ticker struct {
+	Timestamp time.Time       `json:"timestamp"`
 	Symbol    string          `json:"symbol"`
 	Last      decimal.Decimal `json:"last"`
 	Bid       decimal.Decimal `json:"bid"`
@@ -80,7 +81,6 @@ type Ticker struct {
 	Low24h    decimal.Decimal `json:"low_24h"`
 	Volume24h decimal.Decimal `json:"volume_24h"`
 	Change24h decimal.Decimal `json:"change_24h"`
-	Timestamp time.Time       `json:"timestamp"`
 }
 
 // Candle represents OHLCV candlestick data
@@ -99,10 +99,10 @@ type Candle struct {
 
 // OrderBook represents exchange order book
 type OrderBook struct {
+	Timestamp time.Time       `json:"timestamp"`
 	Symbol    string          `json:"symbol"`
 	Bids      []OrderBookItem `json:"bids"`
 	Asks      []OrderBookItem `json:"asks"`
-	Timestamp time.Time       `json:"timestamp"`
 }
 
 // OrderBookItem represents single order book level
@@ -113,10 +113,10 @@ type OrderBookItem struct {
 
 // Balance represents account balance
 type Balance struct {
+	Currencies map[string]CurrencyBalance `json:"currencies"`
 	Total      decimal.Decimal            `json:"total"`
 	Free       decimal.Decimal            `json:"free"`
 	Used       decimal.Decimal            `json:"used"`
-	Currencies map[string]CurrencyBalance `json:"currencies"`
 }
 
 // CurrencyBalance represents balance for specific currency
@@ -129,6 +129,7 @@ type CurrencyBalance struct {
 
 // Order represents trading order
 type Order struct {
+	Timestamp   time.Time       `json:"timestamp"`
 	ID          string          `json:"id"`
 	Symbol      string          `json:"symbol"`
 	Type        OrderType       `json:"type"`
@@ -140,90 +141,89 @@ type Order struct {
 	Status      string          `json:"status"`
 	Fee         decimal.Decimal `json:"fee"`
 	FeeCurrency string          `json:"fee_currency"`
-	Timestamp   time.Time       `json:"timestamp"`
 }
 
 // Position represents open futures position
 type Position struct {
+	Timestamp        time.Time       `json:"timestamp"`
 	Symbol           string          `json:"symbol"`
 	Side             PositionSide    `json:"side"`
 	Size             decimal.Decimal `json:"size"`
 	EntryPrice       decimal.Decimal `json:"entry_price"`
 	CurrentPrice     decimal.Decimal `json:"current_price"`
-	Leverage         int             `json:"leverage"`
 	UnrealizedPnL    decimal.Decimal `json:"unrealized_pnl"`
 	LiquidationPrice decimal.Decimal `json:"liquidation_price"`
 	Margin           decimal.Decimal `json:"margin"`
-	Timestamp        time.Time       `json:"timestamp"`
+	Leverage         int             `json:"leverage"`
 }
 
 // Trade represents executed trade
 type Trade struct {
-	ID          string          `json:"id" db:"id"`
-	AgentID     string          `json:"agent_id" db:"agent_id"`
-	UserID      string          `json:"user_id" db:"user_id"`
-	Exchange    string          `json:"exchange" db:"exchange"`
-	Symbol      string          `json:"symbol" db:"symbol"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
+	ClosedAt    time.Time       `json:"closed_at" db:"closed_at"`
+	OpenedAt    time.Time       `json:"opened_at" db:"opened_at"`
 	Side        OrderSide       `json:"side" db:"side"`
+	Price       decimal.Decimal `json:"price" db:"price"`
+	AIDecision  string          `json:"ai_decision" db:"ai_decision"`
 	Type        OrderType       `json:"type" db:"type"`
 	EntryPrice  decimal.Decimal `json:"entry_price" db:"entry_price"`
 	ExitPrice   decimal.Decimal `json:"exit_price" db:"exit_price"`
 	Size        decimal.Decimal `json:"size" db:"size"`
-	Leverage    int             `json:"leverage" db:"leverage"`
+	ID          string          `json:"id" db:"id"`
 	Amount      decimal.Decimal `json:"amount" db:"amount"`
-	Price       decimal.Decimal `json:"price" db:"price"`
+	Symbol      string          `json:"symbol" db:"symbol"`
 	Fee         decimal.Decimal `json:"fee" db:"fee"`
 	PnL         decimal.Decimal `json:"pnl" db:"pnl"`
-	PnLPercent  float64         `json:"pnl_percent" db:"pnl_percent"`
+	Exchange    string          `json:"exchange" db:"exchange"`
 	RealizedPnL decimal.Decimal `json:"realized_pnl" db:"realized_pnl"`
-	OpenedAt    time.Time       `json:"opened_at" db:"opened_at"`
-	ClosedAt    time.Time       `json:"closed_at" db:"closed_at"`
+	UserID      string          `json:"user_id" db:"user_id"`
+	AgentID     string          `json:"agent_id" db:"agent_id"`
 	EntryReason string          `json:"entry_reason" db:"entry_reason"`
 	ExitReason  string          `json:"exit_reason" db:"exit_reason"`
-	AIDecision  string          `json:"ai_decision" db:"ai_decision"` // JSONB
-	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
+	Leverage    int             `json:"leverage" db:"leverage"`
+	PnLPercent  float64         `json:"pnl_percent" db:"pnl_percent"`
 }
 
 // AIDecision represents AI model decision
 type AIDecision struct {
-	ID         int64           `json:"id" db:"id"`
-	Provider   string          `json:"provider" db:"provider"`
+	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
+	Size       decimal.Decimal `json:"size"`
 	Prompt     string          `json:"prompt" db:"prompt"`
-	Response   string          `json:"response" db:"response"` // JSONB
+	Response   string          `json:"response" db:"response"`
 	Action     AIAction        `json:"action"`
 	Reason     string          `json:"reason"`
-	Size       decimal.Decimal `json:"size"`
 	StopLoss   decimal.Decimal `json:"stop_loss"`
 	TakeProfit decimal.Decimal `json:"take_profit"`
+	Outcome    string          `json:"outcome" db:"outcome"`
+	Provider   string          `json:"provider" db:"provider"`
+	ID         int64           `json:"id" db:"id"`
 	Confidence int             `json:"confidence" db:"confidence"`
 	Executed   bool            `json:"executed" db:"executed"`
-	Outcome    string          `json:"outcome" db:"outcome"` // JSONB
-	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
 }
 
 // BotState represents persisted bot state
 type BotState struct {
-	ID        int             `json:"id" db:"id"`
+	UpdatedAt time.Time       `json:"updated_at" db:"updated_at"`
 	Mode      TradingMode     `json:"mode" db:"mode"`
 	Status    BotStatus       `json:"status" db:"status"`
 	Balance   decimal.Decimal `json:"balance" db:"balance"`
 	Equity    decimal.Decimal `json:"equity" db:"equity"`
 	DailyPnL  decimal.Decimal `json:"daily_pnl" db:"daily_pnl"`
-	UpdatedAt time.Time       `json:"updated_at" db:"updated_at"`
+	ID        int             `json:"id" db:"id"`
 }
 
 // MarketData aggregates all market information
 type MarketData struct {
-	Symbol       string               `json:"symbol"`
+	Timestamp    time.Time            `json:"timestamp"`
 	Ticker       *Ticker              `json:"ticker"`
-	Candles      map[string][]Candle  `json:"candles"` // timeframe -> candles
+	Candles      map[string][]Candle  `json:"candles"`
 	OrderBook    *OrderBook           `json:"order_book"`
-	FundingRate  decimal.Decimal      `json:"funding_rate"`
-	OpenInterest decimal.Decimal      `json:"open_interest"`
 	Indicators   *TechnicalIndicators `json:"indicators"`
 	NewsSummary  *NewsSummary         `json:"news_summary,omitempty"`
 	OnChainData  *OnChainSummary      `json:"onchain_data,omitempty"`
-	Timestamp    time.Time            `json:"timestamp"`
+	Symbol       string               `json:"symbol"`
+	FundingRate  decimal.Decimal      `json:"funding_rate"`
+	OpenInterest decimal.Decimal      `json:"open_interest"`
 }
 
 // TechnicalIndicators represents calculated technical indicators
@@ -267,10 +267,10 @@ type TradingPrompt struct {
 
 // EnsembleDecision represents consensus from multiple AI providers
 type EnsembleDecision struct {
-	Decisions  []*AIDecision `json:"decisions"`
 	Consensus  *AIDecision   `json:"consensus"`
-	Agreement  bool          `json:"agreement"`
+	Decisions  []*AIDecision `json:"decisions"`
 	Confidence int           `json:"confidence"`
+	Agreement  bool          `json:"agreement"`
 }
 
 // StrategyParameters represents trading strategy parameters

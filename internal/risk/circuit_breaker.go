@@ -14,17 +14,17 @@ import (
 
 // CircuitBreaker prevents trading when certain risk thresholds are exceeded
 type CircuitBreaker struct {
-	mu                   sync.RWMutex
+	openedAt             time.Time
+	lastResetDate        time.Time
 	repo                 *Repository
 	userID               int64
-	isOpen               bool
 	consecutiveLosses    int
 	maxConsecutiveLosses int
 	dailyLoss            float64
 	maxDailyLoss         float64
 	cooldownDuration     time.Duration
-	openedAt             time.Time
-	lastResetDate        time.Time
+	mu                   sync.RWMutex
+	isOpen               bool
 }
 
 // NewCircuitBreaker creates new circuit breaker
@@ -174,9 +174,9 @@ func (cb *CircuitBreaker) GetStatus() CircuitBreakerStatus {
 
 // CircuitBreakerStatus represents current status
 type CircuitBreakerStatus struct {
-	IsOpen            bool          `json:"is_open"`
+	OpenedAt          time.Time     `json:"opened_at,omitempty"`
 	ConsecutiveLosses int           `json:"consecutive_losses"`
 	DailyLoss         float64       `json:"daily_loss"`
-	OpenedAt          time.Time     `json:"opened_at,omitempty"`
 	CooldownRemaining time.Duration `json:"cooldown_remaining,omitempty"`
+	IsOpen            bool          `json:"is_open"`
 }
