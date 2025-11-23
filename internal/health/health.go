@@ -183,7 +183,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 
 	// Service is ready if:
 	// 1. Marked as ready (startup complete)
-	// 2. Dependencies are healthy
+	// 2. Dependencies are healthy (DB, Redis)
 	isReady := ready && allHealthy
 
 	status := ReadinessStatus{

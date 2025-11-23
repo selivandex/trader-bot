@@ -30,10 +30,10 @@ func (am *AgenticManager) initializeToolkit(runner *AgenticRunner) {
 		am.notifier,
 	)
 
-	// Set metrics logger if ClickHouse available
-	if am.chDB != nil {
+	// Set metrics logger if metrics buffer available
+	if am.metricsBuffer != nil {
 		agentToolkit.SetMetricsLogger(
-			am.chDB,
+			am.metricsBuffer,
 			runner.Config.Name,
 			string(runner.Config.Personality),
 		)

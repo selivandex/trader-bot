@@ -128,39 +128,50 @@ func contains(s, substr string) bool {
 
 // SearchNewsSemantics performs semantic search using embeddings
 // Finds news by meaning, not just keywords
-// Returns error if embeddings unavailable (no silent fallback)
+// Falls back to text search if embeddings unavailable
 func (c *Cache) SearchNewsSemantics(
 	ctx context.Context,
 	semanticQuery string,
 	since time.Duration,
 	limit int,
 ) ([]models.NewsItem, error) {
-	if c.embeddingClient == nil {
-		return nil, fmt.Errorf("semantic search unavailable: embedding client not configured (set OPENAI_API_KEY)")
-	}
+	// Try semantic search first if embedding client available
+	if c.embeddingClient != nil {
+		// Generate embedding for query
+		queryEmbedding, err := c.embeddingClient.Generate(ctx, semanticQuery)
+		if err != nil {
+			logger.Warn("⚠️ semantic search failed, falling back to text search",
+				zap.Error(err),
+				zap.String("query", semanticQuery),
+			)
+			// Fallback to text search
+			return c.SearchNews(ctx, semanticQuery, since, limit)
+		}
 
-	// Generate embedding for query
-	queryEmbedding, err := c.embeddingClient.Generate(ctx, semanticQuery)
-	if err != nil {
-		logger.Error("⚠️ SEMANTIC SEARCH UNAVAILABLE - embedding generation failed",
-			zap.Error(err),
+		// Vector similarity search
+		news, err := c.repo.SearchNewsByVector(ctx, queryEmbedding, since, limit)
+		if err != nil {
+			logger.Warn("vector search failed, falling back to text search",
+				zap.Error(err),
+				zap.String("query", semanticQuery),
+			)
+			// Fallback to text search
+			return c.SearchNews(ctx, semanticQuery, since, limit)
+		}
+
+		logger.Debug("semantic news search completed",
 			zap.String("query", semanticQuery),
+			zap.Int("found", len(news)),
 		)
-		return nil, fmt.Errorf("semantic search unavailable: %w", err)
+
+		return news, nil
 	}
 
-	// Vector similarity search
-	news, err := c.repo.SearchNewsByVector(ctx, queryEmbedding, since, limit)
-	if err != nil {
-		return nil, fmt.Errorf("semantic search failed: %w", err)
-	}
-
-	logger.Debug("semantic news search completed",
+	// No embedding client - fall back to text search
+	logger.Debug("embedding client not configured, using text search fallback",
 		zap.String("query", semanticQuery),
-		zap.Int("found", len(news)),
 	)
-
-	return news, nil
+	return c.SearchNews(ctx, semanticQuery, since, limit)
 }
 
 // GetRepo returns underlying repository for direct access to low-level methods

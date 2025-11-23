@@ -19,8 +19,10 @@ import (
 	"github.com/selivandex/trader-bot/internal/adapters/clickhouse"
 	"github.com/selivandex/trader-bot/internal/adapters/config"
 	"github.com/selivandex/trader-bot/internal/adapters/database"
+	embeddingAdapter "github.com/selivandex/trader-bot/internal/adapters/embeddings"
 	"github.com/selivandex/trader-bot/internal/adapters/exchange"
 	"github.com/selivandex/trader-bot/internal/adapters/market"
+	metricsAdapter "github.com/selivandex/trader-bot/internal/adapters/metrics"
 	"github.com/selivandex/trader-bot/internal/adapters/news"
 	"github.com/selivandex/trader-bot/internal/adapters/onchain"
 	"github.com/selivandex/trader-bot/internal/adapters/price"
@@ -33,6 +35,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/workers"
 	"github.com/selivandex/trader-bot/pkg/embeddings"
 	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/metrics"
 	"github.com/selivandex/trader-bot/pkg/models"
 	"github.com/selivandex/trader-bot/pkg/templates"
 )
@@ -88,67 +91,37 @@ func run(ctx context.Context) error {
 		defer chDB.Close()
 	}
 
-	// Initialize AI providers and market systems
+	// Initialize AI providers
 	aiProviders, err := initAIProviders(cfg)
 	if err != nil {
 		return err
 	}
 
-	// Market repository reads from ClickHouse (or PostgreSQL fallback)
-	var marketRepo *market.Repository
-	if chDB != nil {
-		marketRepo = market.NewRepository(chDB.DB())
-		logger.Info("✅ Market repository using ClickHouse")
-	} else {
-		marketRepo = market.NewRepository(db.DB())
-		logger.Info("⚠️ Market repository using PostgreSQL fallback")
+	// Initialize universal metrics buffer (shared across all components)
+	metricsBuffer := initMetricsBuffer(chDB)
+	if metricsBuffer != nil {
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer shutdownCancel()
+
+			logger.Info("flushing metrics buffer before shutdown...")
+			if err := metricsBuffer.Close(shutdownCtx); err != nil {
+				logger.Error("failed to flush metrics buffer", zap.Error(err))
+			} else {
+				logger.Info("✅ metrics buffer flushed successfully")
+			}
+		}()
 	}
 
-	// Create unified embedding client (used by agents and news)
-	var embeddingClient *embeddings.Client
-	if cfg.AI.OpenAI.APIKey != "" {
-		openaiClient := openai.NewClient(cfg.AI.OpenAI.APIKey)
-		embeddingClient = embeddings.NewClient(embeddings.Config{
-			OpenAIClient: openaiClient,
-			RedisClient:  redisClient,
-			Model:        openai.AdaEmbeddingV2,
-		})
-		logger.Info("✅ Unified embedding client initialized (7-day cache)")
-	} else {
-		logger.Warn("⚠️ OpenAI API key not set - semantic search will be unavailable")
-	}
+	// Initialize market repository
+	marketRepo := initMarketRepository(db, chDB)
+
+	// Initialize embedding client with deduplication
+	embeddingClient := initEmbeddingClient(cfg, db, metricsBuffer)
 
 	newsAggregator, newsCache, err := initNewsSystem(ctx, cfg, db, aiProviders, embeddingClient, redisClient)
 	if err != nil {
 		return err
-	}
-
-	// Check embedding coverage before starting agents
-	if newsCache != nil && embeddingClient != nil {
-		coverage, err := newsCache.GetEmbeddingCoverage(ctx, 24*time.Hour)
-		if err != nil {
-			logger.Warn("failed to check embedding coverage", zap.Error(err))
-		} else {
-			logger.Info("📊 News embedding coverage",
-				zap.Float64("coverage_pct", coverage*100),
-				zap.String("status", func() string {
-					if coverage >= 0.80 {
-						return "✅ Good"
-					} else if coverage >= 0.50 {
-						return "⚠️ Low"
-					}
-					return "❌ Critical"
-				}()),
-			)
-
-			// Warn if coverage too low (but don't fail - might be first startup)
-			if coverage < 0.50 && coverage > 0 {
-				logger.Warn("⚠️ Low news embedding coverage - semantic search quality degraded",
-					zap.Float64("coverage", coverage),
-					zap.String("hint", "Wait for news worker to process recent articles"),
-				)
-			}
-		}
 	}
 
 	// Start background workers
@@ -176,7 +149,7 @@ func run(ctx context.Context) error {
 	if chDB != nil {
 		chDBConn = chDB.DB()
 	}
-	agenticManager := initAgenticSystem(ctx, cfg, db, chDBConn, redisClient, marketRepo, newsAggregator, newsCache, allTemplates, aiProviders, notifier, embeddingClient)
+	agenticManager := initAgenticSystem(ctx, cfg, db, chDBConn, redisClient, marketRepo, newsAggregator, newsCache, allTemplates, aiProviders, notifier, embeddingClient, metricsBuffer)
 
 	// Start health server
 	healthServer := startHealthServer(cfg, db, redisClient, agenticManager, len(aiProviders))
@@ -267,6 +240,7 @@ func initAgenticSystem(
 	aiProviders []ai.Provider,
 	notifier agents.Notifier,
 	embeddingClient *embeddings.Client,
+	metricsBuffer metrics.Buffer, // Universal metrics buffer
 ) *agents.AgenticManager {
 	lockFactory := redisClient.GetLockFactory()
 	agenticManager := agents.NewAgenticManager(
@@ -281,6 +255,7 @@ func initAgenticSystem(
 		aiProviders,
 		notifier,
 		embeddingClient,
+		metricsBuffer, // Universal metrics buffer
 	)
 
 	exchangeFactory := createExchangeFactory(cfg)
@@ -365,6 +340,67 @@ func initRedis(cfg *config.Config) (*redisAdapter.Client, error) {
 	)
 
 	return redisClient, nil
+}
+
+// initMetricsBuffer initializes universal metrics buffer for ClickHouse
+func initMetricsBuffer(chDB *database.DB) metrics.Buffer {
+	if chDB == nil {
+		logger.Warn("⚠️ ClickHouse unavailable - metrics will not be collected")
+		return nil
+	}
+
+	metricsRepo := metricsAdapter.NewClickHouseRepository(chDB.DB())
+	metricsWriter := metricsAdapter.NewWriter(metricsRepo)
+	metricsBuffer := metrics.NewBufferedMetrics(metrics.BufferConfig{
+		Writer:        metricsWriter,
+		BatchSize:     100,              // Flush every 100 metrics
+		FlushInterval: 10 * time.Second, // Or every 10 seconds
+	})
+
+	logger.Info("✅ Universal metrics buffer initialized",
+		zap.Int("batch_size", 100),
+		zap.Duration("flush_interval", 10*time.Second),
+	)
+
+	return metricsBuffer
+}
+
+// initMarketRepository initializes market data repository
+func initMarketRepository(db *database.DB, chDB *database.DB) *market.Repository {
+	var marketRepo *market.Repository
+	if chDB != nil {
+		marketRepo = market.NewRepository(chDB.DB())
+		logger.Info("✅ Market repository using ClickHouse")
+	} else {
+		marketRepo = market.NewRepository(db.DB())
+		logger.Info("⚠️ Market repository using PostgreSQL fallback")
+	}
+	return marketRepo
+}
+
+// initEmbeddingClient initializes embedding client with deduplication and metrics
+func initEmbeddingClient(cfg *config.Config, db *database.DB, metricsBuffer metrics.Buffer) *embeddings.Client {
+	if cfg.AI.OpenAI.APIKey == "" {
+		logger.Warn("⚠️ OpenAI API key not set - semantic search will be unavailable")
+		return nil
+	}
+
+	openaiClient := openai.NewClient(cfg.AI.OpenAI.APIKey)
+
+	// Create Postgres repository for embedding deduplication
+	// This is NOT a cache - embeddings are deterministic and expensive ($$$),
+	// so we store them permanently to avoid redundant OpenAI API calls
+	embeddingRepo := embeddingAdapter.NewRepository(db.DB())
+
+	embeddingClient := embeddings.NewClient(embeddings.Config{
+		OpenAIClient:  openaiClient,
+		Repository:    embeddingRepo,
+		MetricsBuffer: metricsBuffer, // Universal metrics buffer
+		Model:         openai.AdaEmbeddingV2,
+	})
+
+	logger.Info("✅ Unified embedding client initialized with deduplication (Postgres + metrics)")
+	return embeddingClient
 }
 
 // initAIProviders initializes AI providers
@@ -458,6 +494,14 @@ func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, ai
 	go func() {
 		if err := newsWorker.Start(ctx); err != nil && err != context.Canceled {
 			logger.Error("news worker error", zap.Error(err))
+		}
+	}()
+
+	// Start embedding backfill worker (1 hour interval)
+	embeddingBackfillWorker := workers.NewEmbeddingBackfillWorker(newsCache, newsRepo, 1*time.Hour)
+	go func() {
+		if err := embeddingBackfillWorker.Start(ctx); err != nil && err != context.Canceled {
+			logger.Error("embedding backfill worker error", zap.Error(err))
 		}
 	}()
 

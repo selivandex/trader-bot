@@ -17,6 +17,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/indicators"
 	"github.com/selivandex/trader-bot/pkg/embeddings"
 	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/metrics"
 	"github.com/selivandex/trader-bot/pkg/models"
 	"github.com/selivandex/trader-bot/pkg/templates"
 )
@@ -46,12 +47,14 @@ type AgenticManager struct {
 	notifier        Notifier                      // Telegram notifier (can be nil)
 	aiProviders     map[string]ai.AgenticProvider // Only agentic providers
 	embeddingClient *embeddings.Client            // Unified embedding client
+	metricsBuffer   metrics.Buffer                // Universal metrics buffer (optional)
 	runningAgents   map[string]*AgenticRunner     // agentID -> runner
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup // For graceful shutdown
 	shutdownOnce    sync.Once      // Ensure shutdown runs once
 }
+
 
 // AgenticRunner represents a fully autonomous agent
 type AgenticRunner struct {
@@ -85,6 +88,7 @@ func NewAgenticManager(
 	aiProviders []ai.Provider,
 	notifier Notifier, // Can be nil if telegram disabled
 	embeddingClient *embeddings.Client, // Unified embedding client
+	metricsBuffer metrics.Buffer, // Universal metrics buffer (optional, can be nil)
 ) *AgenticManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -113,6 +117,7 @@ func NewAgenticManager(
 		notifier:        notifier,
 		aiProviders:     agenticProviders,
 		embeddingClient: embeddingClient,
+		metricsBuffer:   metricsBuffer,
 		runningAgents:   make(map[string]*AgenticRunner),
 		ctx:             ctx,
 		cancel:          cancel,

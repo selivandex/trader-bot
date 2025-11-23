@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/market"
 	"github.com/selivandex/trader-bot/internal/adapters/news"
 	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/metrics"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
 
@@ -47,13 +47,13 @@ func NewLocalToolkit(
 	}
 }
 
-// SetMetricsLogger sets ClickHouse metrics logger with batching (optional)
-func (t *LocalToolkit) SetMetricsLogger(chDB *sqlx.DB, agentName, personality string) {
+// SetMetricsLogger sets metrics logger with universal buffer (optional)
+func (t *LocalToolkit) SetMetricsLogger(buffer metrics.Buffer, agentName, personality string) {
 	t.agentName = agentName
 	t.personality = personality
-	if chDB != nil {
-		t.metricsLogger = NewBatchedMetricsLogger(chDB, agentName, personality)
-		logger.Debug("batched metrics logger initialized for toolkit",
+	if buffer != nil {
+		t.metricsLogger = NewBatchedMetricsLogger(buffer, agentName, personality)
+		logger.Debug("metrics logger initialized for toolkit",
 			zap.String("agent", agentName),
 			zap.String("personality", personality),
 		)

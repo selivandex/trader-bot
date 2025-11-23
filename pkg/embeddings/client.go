@@ -2,99 +2,247 @@ package embeddings
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"math"
+	"net/http"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
-	redisAdapter "github.com/selivandex/trader-bot/internal/adapters/redis"
 	"github.com/selivandex/trader-bot/pkg/logger"
+	"github.com/selivandex/trader-bot/pkg/metrics"
 )
 
-// Client handles unified embedding generation with Redis caching
-// Consolidates logic from news.Cache and agents.SemanticMemoryManager
+// EmbeddingRepository interface for storage implementations
+// Not really a "cache" - embeddings are deterministic and expensive,
+// so we store them permanently to avoid redundant API calls
+type EmbeddingRepository interface {
+	Get(ctx context.Context, textHash string) ([]float32, bool)
+	Set(ctx context.Context, textHash string, embedding []float32, model string, textLength int) error
+}
+
+// Client handles unified embedding generation with deduplication via repository
 type Client struct {
-	openaiClient *openai.Client
-	redisClient  *redisAdapter.Client
-	model        openai.EmbeddingModel
+	openaiClient  *openai.Client
+	repository    EmbeddingRepository // Optional repository for deduplication
+	model         openai.EmbeddingModel
+	metricsBuffer metrics.Buffer // Optional metrics buffer for ClickHouse
+	// Deduplication stats (in-memory counters)
+	deduplicationHits   int64
+	deduplicationMisses int64
 }
 
 // Config for embedding client
 type Config struct {
-	OpenAIClient *openai.Client
-	RedisClient  *redisAdapter.Client
-	Model        openai.EmbeddingModel // Default: openai.AdaEmbeddingV2
-	CacheTTL     time.Duration
+	OpenAIClient  *openai.Client
+	Repository    EmbeddingRepository   // Optional repository for deduplication
+	MetricsBuffer metrics.Buffer        // Optional metrics buffer for ClickHouse
+	Model         openai.EmbeddingModel // Default: openai.AdaEmbeddingV2
 }
 
-// NewClient creates new unified embedding client
+// NewClient creates new unified embedding client with optional deduplication
 func NewClient(cfg Config) *Client {
 	model := cfg.Model
 	if model == "" {
 		model = openai.AdaEmbeddingV2
 	}
 
+	if cfg.Repository != nil {
+		logger.Info("embedding deduplication enabled (Postgres repository)")
+	}
+
 	return &Client{
-		openaiClient: cfg.OpenAIClient,
-		redisClient:  cfg.RedisClient,
-		model:        model,
+		openaiClient:  cfg.OpenAIClient,
+		repository:    cfg.Repository,
+		metricsBuffer: cfg.MetricsBuffer,
+		model:         model,
 	}
 }
 
-// Generate creates embedding for single text with Redis cache
-// Returns error if OpenAI is unavailable - NO FALLBACK
+// Generate creates embedding for single text with deduplication and retry logic
 func (c *Client) Generate(ctx context.Context, text string) ([]float32, error) {
-	// Try Redis cache first
-	if c.redisClient != nil {
-		cached, hit := c.getCachedEmbedding(ctx, text)
-		if hit {
-			logger.Debug("embedding cache hit",
+	// Try repository first (deduplication)
+	if c.repository != nil {
+		textHash := c.hashText(text)
+		existing, found := c.repository.Get(ctx, textHash)
+		if found {
+			atomic.AddInt64(&c.deduplicationHits, 1)
+
+			// Log to ClickHouse
+			if c.metricsBuffer != nil {
+				c.metricsBuffer.Add(&metrics.EmbeddingDeduplicationMetric{
+					Timestamp:    time.Now(),
+					TextHash:     textHash[:16], // Store prefix only
+					TextLength:   len(text),
+					Model:        string(c.model),
+					CacheHit:     true,
+					CostSavedUSD: 0.0001,
+				})
+			}
+
+			logger.Debug("✅ embedding deduplication HIT (saved $0.0001)",
 				zap.Int("text_len", len(text)),
+				zap.String("hash", textHash[:12]),
 			)
-			return cached, nil
+			return existing, nil
 		}
+		atomic.AddInt64(&c.deduplicationMisses, 1)
 	}
 
-	// Cache miss - generate via OpenAI API
+	// Not found - generate via OpenAI API with retry
 	if c.openaiClient == nil {
 		return nil, fmt.Errorf("OpenAI embedding client not configured - please set OPENAI_API_KEY")
 	}
 
-	resp, err := c.openaiClient.CreateEmbeddings(
-		ctx,
-		openai.EmbeddingRequest{
-			Model: c.model,
-			Input: []string{text},
-		},
-	)
+	// Retry with exponential backoff (up to 3 attempts)
+	embeddings, err := c.generateWithRetry(ctx, []string{text}, 3)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI embedding API failed: %w", err)
+		return nil, fmt.Errorf("OpenAI embedding API failed after retries: %w", err)
 	}
 
-	if len(resp.Data) == 0 {
+	if len(embeddings) == 0 {
 		return nil, fmt.Errorf("OpenAI returned no embedding data")
 	}
 
-	embedding := resp.Data[0].Embedding
+	result := embeddings[0]
 
-	// Cache for future use (7 days TTL - embeddings are deterministic)
-	if c.redisClient != nil {
-		c.cacheEmbedding(ctx, text, embedding)
+	// Store in repository for future deduplication
+	if c.repository != nil {
+		textHash := c.hashText(text)
+		if err := c.repository.Set(ctx, textHash, result, string(c.model), len(text)); err != nil {
+			logger.Warn("failed to store embedding in repository", zap.Error(err))
+			// Non-critical, continue
+		}
 	}
 
-	logger.Debug("embedding generated via OpenAI",
+	// Log miss to ClickHouse
+	if c.metricsBuffer != nil {
+		textHash := c.hashText(text)
+		c.metricsBuffer.Add(&metrics.EmbeddingDeduplicationMetric{
+			Timestamp:    time.Now(),
+			TextHash:     textHash[:16],
+			TextLength:   len(text),
+			Model:        string(c.model),
+			CacheHit:     false,
+			CostSavedUSD: 0,
+		})
+	}
+
+	logger.Debug("💸 embedding generated via OpenAI API (cost: $0.0001)",
 		zap.Int("text_len", len(text)),
-		zap.Int("dim", len(embedding)),
+		zap.Int("dim", len(result)),
+		zap.String("hash", c.hashText(text)[:12]),
 	)
 
-	return embedding, nil
+	return result, nil
+}
+
+// generateWithRetry calls OpenAI API with exponential backoff retry
+func (c *Client) generateWithRetry(ctx context.Context, texts []string, maxRetries int) ([][]float32, error) {
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s
+			backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+			logger.Debug("retrying OpenAI embedding request",
+				zap.Int("attempt", attempt+1),
+				zap.Int("max_retries", maxRetries),
+				zap.Duration("backoff", backoffDuration),
+			)
+
+			select {
+			case <-time.After(backoffDuration):
+				// Continue
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context canceled during retry backoff: %w", ctx.Err())
+			}
+		}
+
+		resp, err := c.openaiClient.CreateEmbeddings(
+			ctx,
+			openai.EmbeddingRequest{
+				Model: c.model,
+				Input: texts,
+			},
+		)
+
+		if err == nil {
+			// Success - extract embeddings
+			embeddings := make([][]float32, len(resp.Data))
+			for i, data := range resp.Data {
+				embeddings[i] = data.Embedding
+			}
+			return embeddings, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !isRetryableError(err) {
+			logger.Warn("non-retryable OpenAI error, aborting",
+				zap.Error(err),
+			)
+			return nil, err
+		}
+
+		logger.Warn("retryable OpenAI error encountered",
+			zap.Error(err),
+			zap.Int("attempt", attempt+1),
+		)
+	}
+
+	return nil, fmt.Errorf("max retries (%d) exceeded: %w", maxRetries, lastErr)
+}
+
+// isRetryableError checks if error should trigger a retry
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	// Rate limit errors (429)
+	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
+		return true
+	}
+
+	// Timeout errors
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
+		return true
+	}
+
+	// Temporary network errors
+	if strings.Contains(errStr, "connection refused") || strings.Contains(errStr, "connection reset") {
+		return true
+	}
+
+	// Server errors (5xx)
+	if strings.Contains(errStr, "500") || strings.Contains(errStr, "502") || strings.Contains(errStr, "503") {
+		return true
+	}
+
+	// Check for openai.APIError (typed error)
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) {
+		// Retry on rate limits and server errors
+		return apiErr.HTTPStatusCode == http.StatusTooManyRequests ||
+			apiErr.HTTPStatusCode >= 500
+	}
+
+	return false
 }
 
 // GenerateBatch creates embeddings for multiple texts (up to 2048 per batch)
 // Much faster than individual calls (10x speedup)
+// Uses repository for deduplication and retry logic with exponential backoff
 func (c *Client) GenerateBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return [][]float32{}, nil
@@ -116,15 +264,16 @@ func (c *Client) GenerateBatch(ctx context.Context, texts []string) ([][]float32
 		}
 		batch := texts[i:end]
 
-		// Check cache for batch items
+		// Check repository for batch items (deduplication)
 		var uncachedIndices []int
 		var uncachedTexts []string
 
 		for j, text := range batch {
-			if c.redisClient != nil {
-				cached, hit := c.getCachedEmbedding(ctx, text)
-				if hit {
-					allEmbeddings[i+j] = cached
+			if c.repository != nil {
+				textHash := c.hashText(text)
+				existing, found := c.repository.Get(ctx, textHash)
+				if found {
+					allEmbeddings[i+j] = existing
 					continue
 				}
 			}
@@ -132,39 +281,36 @@ func (c *Client) GenerateBatch(ctx context.Context, texts []string) ([][]float32
 			uncachedTexts = append(uncachedTexts, text)
 		}
 
-		// If all cached, skip API call
+		// If all found in repository, skip API call
 		if len(uncachedTexts) == 0 {
-			logger.Debug("batch embedding cache hit (all)",
+			logger.Debug("batch embedding deduplication (all found in repository)",
 				zap.Int("batch_size", len(batch)),
 			)
 			continue
 		}
 
-		// Single batch API call for uncached items
-		resp, err := c.openaiClient.CreateEmbeddings(
-			ctx,
-			openai.EmbeddingRequest{
-				Model: c.model,
-				Input: uncachedTexts,
-			},
-		)
+		// Batch API call with retry for new items
+		embeddings, err := c.generateWithRetry(ctx, uncachedTexts, 3)
 		if err != nil {
-			return nil, fmt.Errorf("batch embedding API failed: %w", err)
+			return nil, fmt.Errorf("batch embedding API failed after retries: %w", err)
 		}
 
-		if len(resp.Data) != len(uncachedTexts) {
-			return nil, fmt.Errorf("batch response size mismatch: expected %d, got %d", len(uncachedTexts), len(resp.Data))
+		if len(embeddings) != len(uncachedTexts) {
+			return nil, fmt.Errorf("batch response size mismatch: expected %d, got %d", len(uncachedTexts), len(embeddings))
 		}
 
-		// Assign embeddings and cache them
-		for j, embeddingData := range resp.Data {
+		// Assign embeddings and store in repository
+		for j, embedding := range embeddings {
 			idx := uncachedIndices[j]
-			embedding := embeddingData.Embedding
 			allEmbeddings[idx] = embedding
 
-			// Cache for future use
-			if c.redisClient != nil {
-				c.cacheEmbedding(ctx, uncachedTexts[j], embedding)
+			// Store in repository
+			if c.repository != nil {
+				textHash := c.hashText(uncachedTexts[j])
+				if err := c.repository.Set(ctx, textHash, embedding, string(c.model), len(uncachedTexts[j])); err != nil {
+					logger.Warn("failed to store embedding in repository", zap.Error(err))
+					// Non-critical, continue
+				}
 			}
 		}
 
@@ -179,60 +325,45 @@ func (c *Client) GenerateBatch(ctx context.Context, texts []string) ([][]float32
 	return allEmbeddings, nil
 }
 
-// getCachedEmbedding retrieves embedding from Redis cache
-func (c *Client) getCachedEmbedding(ctx context.Context, text string) ([]float32, bool) {
-	hash := md5.Sum([]byte(text))
-	cacheKey := fmt.Sprintf("embedding:v2:%s:%x", c.model, hash)
-
-	data, err := c.redisClient.Get(ctx, cacheKey).Result()
-	if err != nil {
-		return nil, false // Cache miss
-	}
-
-	var embedding []float32
-	if err := json.Unmarshal([]byte(data), &embedding); err != nil {
-		logger.Warn("failed to deserialize cached embedding", zap.Error(err))
-		return nil, false
-	}
-
-	return embedding, true
+// hashText creates SHA256 hash of text for cache key
+func (c *Client) hashText(text string) string {
+	hash := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(hash[:])
 }
 
-// cacheEmbedding stores embedding in Redis cache with 7-day TTL
-// Embeddings are deterministic - same text always produces same embedding
-func (c *Client) cacheEmbedding(ctx context.Context, text string, embedding []float32) {
-	hash := md5.Sum([]byte(text))
-	cacheKey := fmt.Sprintf("embedding:v2:%s:%x", c.model, hash)
+// GetDeduplicationEnabled returns whether deduplication is enabled
+func (c *Client) GetDeduplicationEnabled() bool {
+	return c.repository != nil
+}
 
-	data, err := json.Marshal(embedding)
-	if err != nil {
-		logger.Warn("failed to serialize embedding for cache", zap.Error(err))
+// GetDeduplicationStats returns deduplication statistics
+func (c *Client) GetDeduplicationStats() (hits, misses int64, savingsUSD float64) {
+	hits = atomic.LoadInt64(&c.deduplicationHits)
+	misses = atomic.LoadInt64(&c.deduplicationMisses)
+	savingsUSD = float64(hits) * 0.0001 // $0.0001 per embedding
+	return
+}
+
+// LogDeduplicationStats logs current deduplication statistics
+func (c *Client) LogDeduplicationStats() {
+	if c.repository == nil {
 		return
 	}
 
-	// 7 days TTL - embeddings don't change, long cache is safe
-	err = c.redisClient.Set(ctx, cacheKey, data, 7*24*time.Hour).Err()
-	if err != nil {
-		logger.Warn("failed to cache embedding", zap.Error(err))
-	}
-}
+	hits, misses, savings := c.GetDeduplicationStats()
+	total := hits + misses
 
-// GetCacheStats returns cache hit statistics
-func (c *Client) GetCacheStats(ctx context.Context) (*CacheStats, error) {
-	if c.redisClient == nil {
-		return &CacheStats{CacheEnabled: false}, nil
+	if total == 0 {
+		return
 	}
 
-	// Note: Counting keys is expensive in Redis, return approximate stats
-	// For production, consider using SCAN or sampling
-	return &CacheStats{
-		CacheEnabled: true,
-		CachedCount:  -1, // Use -1 to indicate "not counted" (scanning all keys is expensive)
-	}, nil
-}
+	hitRate := float64(hits) / float64(total) * 100
 
-// CacheStats represents cache statistics
-type CacheStats struct {
-	CacheEnabled bool
-	CachedCount  int
+	logger.Info("📊 Embedding deduplication stats",
+		zap.Int64("hits", hits),
+		zap.Int64("misses", misses),
+		zap.Int64("total", total),
+		zap.Float64("hit_rate_%", hitRate),
+		zap.Float64("savings_usd", savings),
+	)
 }

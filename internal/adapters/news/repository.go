@@ -101,11 +101,11 @@ func (r *Repository) GetRecentNews(ctx context.Context, since time.Duration, lim
 
 	query := `
 		SELECT 
-			external_id, source, title, content, url, author,
-			published_at, sentiment, relevance, keywords
+			id, source, title, content, url, author,
+			published_at, sentiment, relevance, impact, urgency, keywords
 		FROM news_items
 		WHERE published_at > $1
-		ORDER BY published_at DESC, relevance DESC
+		ORDER BY published_at DESC, impact DESC, relevance DESC
 		LIMIT $2
 	`
 
@@ -130,6 +130,8 @@ func (r *Repository) GetRecentNews(ctx context.Context, since time.Duration, lim
 			&item.PublishedAt,
 			&item.Sentiment,
 			&item.Relevance,
+			&item.Impact,
+			&item.Urgency,
 			&keywords,
 		)
 
@@ -520,4 +522,91 @@ func (r *Repository) LinkRelatedNews(ctx context.Context, newsID string, related
 	}
 
 	return nil
+}
+
+// GetNewsWithoutEmbeddings retrieves news items that don't have embeddings yet
+// Used by backfill worker to generate missing embeddings
+func (r *Repository) GetNewsWithoutEmbeddings(ctx context.Context, since time.Duration, limit int) ([]models.NewsItem, error) {
+	cutoff := time.Now().Add(-since)
+
+	query := `
+		SELECT 
+			id, source, title, content, url, author, published_at,
+			sentiment, relevance, impact, urgency, keywords
+		FROM news_items
+		WHERE published_at > $1
+			AND embedding IS NULL
+		ORDER BY published_at DESC, impact DESC
+		LIMIT $2
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query news without embeddings: %w", err)
+	}
+	defer rows.Close()
+
+	news := make([]models.NewsItem, 0)
+	for rows.Next() {
+		var item models.NewsItem
+		var keywords pq.StringArray
+
+		err := rows.Scan(
+			&item.ID, &item.Source, &item.Title, &item.Content,
+			&item.URL, &item.Author, &item.PublishedAt,
+			&item.Sentiment, &item.Relevance, &item.Impact, &item.Urgency,
+			&keywords,
+		)
+
+		if err != nil {
+			continue
+		}
+
+		item.Keywords = keywords
+		news = append(news, item)
+	}
+
+	return news, nil
+}
+
+// GetEmbeddingStats returns statistics about embedding coverage
+func (r *Repository) GetEmbeddingStats(ctx context.Context, since time.Duration) (*EmbeddingStats, error) {
+	cutoff := time.Now().Add(-since)
+
+	query := `
+		SELECT 
+			COUNT(*) as total,
+			COUNT(*) FILTER (WHERE embedding IS NOT NULL) as with_embeddings,
+			COUNT(*) FILTER (WHERE embedding IS NULL) as without_embeddings,
+			COUNT(DISTINCT embedding_model) FILTER (WHERE embedding IS NOT NULL) as models_used
+		FROM news_items
+		WHERE published_at > $1
+	`
+
+	var stats EmbeddingStats
+	err := r.db.QueryRowContext(ctx, query, cutoff).Scan(
+		&stats.TotalNews,
+		&stats.WithEmbeddings,
+		&stats.WithoutEmbeddings,
+		&stats.ModelsUsed,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get embedding stats: %w", err)
+	}
+
+	if stats.TotalNews > 0 {
+		stats.CoveragePercent = float64(stats.WithEmbeddings) / float64(stats.TotalNews) * 100
+	}
+
+	return &stats, nil
+}
+
+// EmbeddingStats represents embedding coverage statistics
+type EmbeddingStats struct {
+	TotalNews         int     `json:"total_news"`
+	WithEmbeddings    int     `json:"with_embeddings"`
+	WithoutEmbeddings int     `json:"without_embeddings"`
+	CoveragePercent   float64 `json:"coverage_percent"`
+	ModelsUsed        int     `json:"models_used"`
 }
