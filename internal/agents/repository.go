@@ -507,7 +507,7 @@ func (r *Repository) StoreSemanticMemory(ctx context.Context, memory *models.Sem
 	return nil
 }
 
-// GetSemanticMemories retrieves semantic memories for agent
+// GetSemanticMemories retrieves semantic memories for agent (ordered by importance)
 func (r *Repository) GetSemanticMemories(ctx context.Context, agentID string, limit int) ([]models.SemanticMemory, error) {
 	query := `
 		SELECT id, agent_id, context, action, outcome, lesson,
@@ -542,6 +542,119 @@ func (r *Repository) GetSemanticMemories(ctx context.Context, agentID string, li
 			&mem.AccessCount,
 			&mem.LastAccessed,
 			&mem.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		// Convert embedding
+		embedding := make([]float32, len(embeddingFloats))
+		copy(embedding, embeddingFloats)
+		mem.Embedding = embedding
+
+		memories = append(memories, mem)
+	}
+
+	return memories, nil
+}
+
+// SearchSemanticMemoriesByVector performs vector similarity search in PostgreSQL
+func (r *Repository) SearchSemanticMemoriesByVector(ctx context.Context, agentID string, queryEmbedding []float32, limit int) ([]models.SemanticMemory, error) {
+	// Use pgvector's cosine distance operator <=>
+	// Lower distance = more similar
+	query := `
+		SELECT 
+			id, agent_id, context, action, outcome, lesson,
+			embedding, importance, access_count, last_accessed, created_at,
+			embedding <=> $1::vector AS distance
+		FROM agent_semantic_memories
+		WHERE agent_id = $2
+		ORDER BY distance ASC
+		LIMIT $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), agentID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to vector search memories: %w", err)
+	}
+	defer rows.Close()
+
+	memories := []models.SemanticMemory{}
+
+	for rows.Next() {
+		var mem models.SemanticMemory
+		var embeddingFloats pq.Float32Array
+		var distance float64
+
+		err := rows.Scan(
+			&mem.ID,
+			&mem.AgentID,
+			&mem.Context,
+			&mem.Action,
+			&mem.Outcome,
+			&mem.Lesson,
+			&embeddingFloats,
+			&mem.Importance,
+			&mem.AccessCount,
+			&mem.LastAccessed,
+			&mem.CreatedAt,
+			&distance,
+		)
+		if err != nil {
+			continue
+		}
+
+		// Convert embedding
+		embedding := make([]float32, len(embeddingFloats))
+		copy(embedding, embeddingFloats)
+		mem.Embedding = embedding
+
+		memories = append(memories, mem)
+	}
+
+	return memories, nil
+}
+
+// SearchCollectiveMemoriesByVector performs vector similarity search for collective memories
+func (r *Repository) SearchCollectiveMemoriesByVector(ctx context.Context, personality string, queryEmbedding []float32, limit int) ([]models.CollectiveMemory, error) {
+	query := `
+		SELECT 
+			id, personality, context, action, lesson,
+			embedding, importance, confirmation_count, success_rate,
+			last_confirmed_at, created_at,
+			embedding <=> $1::vector AS distance
+		FROM collective_agent_memories
+		WHERE personality = $2
+		ORDER BY distance ASC
+		LIMIT $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), personality, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to vector search collective memories: %w", err)
+	}
+	defer rows.Close()
+
+	memories := []models.CollectiveMemory{}
+
+	for rows.Next() {
+		var mem models.CollectiveMemory
+		var embeddingFloats pq.Float32Array
+		var distance float64
+
+		err := rows.Scan(
+			&mem.ID,
+			&mem.Personality,
+			&mem.Context,
+			&mem.Action,
+			&mem.Lesson,
+			&embeddingFloats,
+			&mem.Importance,
+			&mem.ConfirmationCount,
+			&mem.SuccessRate,
+			&mem.LastConfirmedAt,
+			&mem.CreatedAt,
+			&distance,
 		)
 		if err != nil {
 			continue

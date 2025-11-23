@@ -107,20 +107,23 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	// 1. Get personal memories
-	personalMemories, err := smm.repository.GetSemanticMemories(ctx, agentID, 100)
+	// 1. ✅ Get personal memories via PostgreSQL vector search
+	personalMemories, err := smm.repository.SearchSemanticMemoriesByVector(ctx, agentID, queryEmbedding, topK*2)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query personal memories: %w", err)
+		return nil, fmt.Errorf("failed to vector search personal memories: %w", err)
 	}
 
-	// 2. Get collective memories for agent's personality
-	collectiveMemories, err := smm.repository.GetCollectiveMemories(ctx, personality, 50)
-	if err != nil {
-		logger.Warn("failed to get collective memories, using personal only", zap.Error(err))
-		collectiveMemories = []models.CollectiveMemory{}
+	// 2. ✅ Get collective memories via PostgreSQL vector search
+	var collectiveMemories []models.CollectiveMemory
+	if personality != "" {
+		collectiveMemories, err = smm.repository.SearchCollectiveMemoriesByVector(ctx, personality, queryEmbedding, topK)
+		if err != nil {
+			logger.Warn("failed to vector search collective memories, using personal only", zap.Error(err))
+			collectiveMemories = []models.CollectiveMemory{}
+		}
 	}
 
-	// 3. Combine both into unified list
+	// 3. Combine and rank by combined score
 	allMemories := smm.mergePersonalAndCollective(personalMemories, collectiveMemories)
 
 	type memoryWithScore struct {
@@ -131,17 +134,15 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 	memoriesWithScores := []memoryWithScore{}
 
 	for _, mem := range allMemories {
-		// Calculate similarity score (cosine similarity)
-		similarity := smm.cosineSimilarity(queryEmbedding, mem.Embedding)
-
-		// Combined score: similarity * importance
-		// Personal memories get slight boost (1.2x) as they're more specific to this agent
+		// PostgreSQL already sorted by similarity (distance)
+		// Calculate combined score: importance * relevance boost
 		boost := 1.0
-		if mem.AccessCount > 0 { // Personal memory (has access count)
+		if mem.AccessCount > 0 { // Personal memory
 			boost = 1.2
 		}
 
-		score := similarity * mem.Importance * boost
+		// Importance is pre-weighted by success rate for collective memories
+		score := mem.Importance * boost
 
 		memoriesWithScores = append(memoriesWithScores, memoryWithScore{
 			memory: mem,
@@ -149,7 +150,7 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 		})
 	}
 
-	// Sort by score
+	// Sort by combined score (similarity already from PG, now add importance)
 	sort.Slice(memoriesWithScores, func(i, j int) bool {
 		return memoriesWithScores[i].score > memoriesWithScores[j].score
 	})
@@ -163,14 +164,17 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 	for i := 0; i < topK; i++ {
 		result[i] = memoriesWithScores[i].memory
 
-		// Update access count and timestamp
-		smm.repository.UpdateMemoryAccess(ctx, result[i].ID)
+		// Update access count for personal memories
+		if result[i].AgentID != "collective" {
+			smm.repository.UpdateMemoryAccess(ctx, result[i].ID)
+		}
 	}
 
-	logger.Debug("recalled memories",
+	logger.Debug("recalled memories via PostgreSQL vector search",
 		zap.String("agent_id", agentID),
 		zap.Int("recalled", len(result)),
-		zap.Int("total", len(memoriesWithScores)),
+		zap.Int("personal", len(personalMemories)),
+		zap.Int("collective", len(collectiveMemories)),
 	)
 
 	return result, nil
