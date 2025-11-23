@@ -8,3 +8,6 @@ DROP TABLE IF EXISTS agent_reflections;
 DROP TABLE IF EXISTS agent_reasoning_sessions;
 DROP TABLE IF EXISTS agent_semantic_memories;
 
+-- Note: We don't drop the vector extension as it might be used by other tables
+-- If you need to drop it: DROP EXTENSION IF EXISTS vector CASCADE;
+

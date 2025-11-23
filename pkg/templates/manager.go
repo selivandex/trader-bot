@@ -14,7 +14,7 @@ import (
 // Renderer interface for template rendering (for dependency injection)
 type Renderer interface {
 	GetTemplate(name string) *template.Template
-	ExecuteTemplate(name string, data interface{}) (string, error)
+	ExecuteTemplate(name string, data any) (string, error)
 	TemplateExists(name string) bool
 }
 

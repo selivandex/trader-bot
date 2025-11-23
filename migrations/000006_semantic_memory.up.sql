@@ -1,3 +1,6 @@
+-- Enable pgvector extension for semantic similarity search
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- Semantic Memory for Agents (Episodic Memory System)
 CREATE TABLE IF NOT EXISTS agent_semantic_memories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -6,7 +9,7 @@ CREATE TABLE IF NOT EXISTS agent_semantic_memories (
     action TEXT NOT NULL,             -- "Went short at $42k with 3x leverage"
     outcome TEXT NOT NULL,            -- "Profit +3.2%, good call"
     lesson TEXT NOT NULL,             -- "News-driven drops are good short opportunities"
-    embedding FLOAT[] NOT NULL,       -- Vector embedding for semantic search
+    embedding vector(1536) NOT NULL,  -- OpenAI ada-002 embedding (1536 dimensions)
     importance DECIMAL(5, 4) NOT NULL DEFAULT 0.5, -- 0.0 - 1.0
     access_count INTEGER NOT NULL DEFAULT 0,
     last_accessed TIMESTAMP,
@@ -15,10 +18,18 @@ CREATE TABLE IF NOT EXISTS agent_semantic_memories (
     CONSTRAINT check_importance CHECK (importance >= 0 AND importance <= 1)
 );
 
+-- Standard indexes
 CREATE INDEX idx_agent_semantic_memories_agent_id ON agent_semantic_memories(agent_id);
 CREATE INDEX idx_agent_semantic_memories_importance ON agent_semantic_memories(importance DESC);
 CREATE INDEX idx_agent_semantic_memories_created_at ON agent_semantic_memories(created_at DESC);
 CREATE INDEX idx_agent_semantic_memories_access_count ON agent_semantic_memories(access_count DESC);
+
+-- 🚀 Vector index for fast semantic similarity search (cosine distance)
+-- IVFFlat index: splits vector space into ~100 clusters for O(sqrt(n)) search
+-- vector_cosine_ops: optimized for cosine similarity (1 - cosine_distance)
+CREATE INDEX idx_agent_semantic_memories_embedding ON agent_semantic_memories 
+USING ivfflat (embedding vector_cosine_ops) 
+WITH (lists = 100);
 
 -- Reasoning Sessions (tracks agent's thinking process)
 CREATE TABLE IF NOT EXISTS agent_reasoning_sessions (
