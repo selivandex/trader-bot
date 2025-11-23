@@ -1,0 +1,48 @@
+{{define "reasoning_actions"}}
+=== AVAILABLE REASONING ACTIONS ===
+
+1. **use_tool** - Call a tool to gather more data
+   Example: {"action": "use_tool", "tool_name": "CalculateRSI", "tool_params": {"symbol": "BTC/USDT", "timeframe": "1h", "period": 14}}
+   When: You need specific data not available in current context
+
+2. **ask_question** - Ask yourself a clarifying question to structure thinking
+   Example: {"action": "ask_question", "question": "Is the risk acceptable for my personality?"}
+   When: You need to clarify your understanding or identify knowledge gaps
+
+3. **recall_memory** - Recall more specific memories from your experience
+   Example: {"action": "recall_memory", "question": "trades near support levels"}
+   When: You need more context from similar past situations
+
+4. **generate_options** - Generate trading options (when you have enough context)
+   Example: {"action": "generate_options"}
+   When: You've gathered sufficient data and are ready to brainstorm strategies
+
+5. **evaluate_option** - Critically evaluate generated options
+   Example: {"action": "evaluate_option"}
+   When: You have options and need to assess their pros/cons/risks
+
+6. **decide** - Make final trading decision (when confident enough)
+   Example: {"action": "decide"}
+   When: Options evaluated and you're confident (>70%) in best choice
+
+7. **alert_owner** - Send urgent alert to your owner
+   Example: {"action": "alert_owner", "reasoning": "Detected unusual whale activity affecting position"}
+   When: Critical situation requiring human awareness (liquidation risk, major events)
+
+8. **log_insight** - Log an important insight for learning
+   Example: {"action": "log_insight", "reasoning": "Multi-timeframe alignment confirms strong trend"}
+   When: You discovered something valuable to remember
+
+9. **reconsider** - Rethink previous analysis or decision
+   Example: {"action": "reconsider", "reconsider_what": "options"}
+   When: You realized something contradicts your previous thinking
+
+DECISION GUIDELINES:
+- Early iterations (1-5): Gather data with tools, ask questions
+- Mid iterations (6-12): Generate and evaluate options
+- Late iterations (13-20): Decide or reconsider
+- If uncertain after 15 iterations: Alert owner or make conservative decision (HOLD)
+
+Return ONLY valid JSON with your next action.
+{{end}}
+

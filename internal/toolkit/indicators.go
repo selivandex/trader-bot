@@ -235,7 +235,7 @@ func (t *LocalToolkit) IsNearSupport(ctx context.Context, symbol, timeframe stri
 	}
 
 	for _, support := range supports {
-		diff := absFloat(currentPrice-support) / currentPrice
+		diff := abs(currentPrice-support) / currentPrice
 		if diff < threshold {
 			return true, nil
 		}
@@ -252,7 +252,7 @@ func (t *LocalToolkit) IsNearResistance(ctx context.Context, symbol, timeframe s
 	}
 
 	for _, resistance := range resistances {
-		diff := absFloat(currentPrice-resistance) / currentPrice
+		diff := abs(currentPrice-resistance) / currentPrice
 		if diff < threshold {
 			return true, nil
 		}
@@ -262,9 +262,3 @@ func (t *LocalToolkit) IsNearResistance(ctx context.Context, symbol, timeframe s
 }
 
 // absFloat returns absolute value
-func absFloat(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}

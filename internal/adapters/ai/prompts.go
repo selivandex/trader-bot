@@ -304,3 +304,35 @@ func truncateContent(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
+
+// FormatDecisionReason formats decision reason using template
+func FormatDecisionReason(personality, aiProvider, aiReason string, signals map[string]SignalWithWeight) string {
+	if globalTemplates == nil {
+		return fmt.Sprintf("[%s via %s] %s", personality, aiProvider, aiReason)
+	}
+
+	data := map[string]interface{}{
+		"Personality": personality,
+		"AIProvider":  aiProvider,
+		"AIReason":    aiReason,
+		"Technical":   signals["technical"],
+		"News":        signals["news"],
+		"OnChain":     signals["onchain"],
+		"Sentiment":   signals["sentiment"],
+	}
+
+	output, err := globalTemplates.ExecuteTemplate("format_decision_reason.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render format_decision_reason template", zap.Error(err))
+		return fmt.Sprintf("[%s via %s] %s", personality, aiProvider, aiReason)
+	}
+
+	return output
+}
+
+// SignalWithWeight combines signal score with agent's weight
+type SignalWithWeight struct {
+	Score     float64
+	Weight    float64
+	Direction string
+}

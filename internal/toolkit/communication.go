@@ -87,12 +87,3 @@ func (t *LocalToolkit) RequestHumanInput(ctx context.Context, question string, o
 
 	return "", fmt.Errorf("human input not implemented")
 }
-
-// Helper functions
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}

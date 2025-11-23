@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
@@ -305,4 +306,121 @@ func (smm *SemanticMemoryManager) mergePersonalAndCollective(
 	}
 
 	return merged
+}
+
+// ============ CROSS-REFERENCE WITH NEWS ============
+
+// FindNewsRelatedToMemory finds news semantically related to a memory
+// Used when agent recalls a memory and wants to check current news context
+func (smm *SemanticMemoryManager) FindNewsRelatedToMemory(
+	ctx context.Context,
+	memory *models.SemanticMemory,
+	newsRepo interface {
+		SearchNewsByVector(ctx context.Context, embedding []float32, since time.Duration, limit int) ([]models.NewsItem, error)
+	},
+	since time.Duration,
+	limit int,
+) ([]models.NewsItem, error) {
+	if len(memory.Embedding) == 0 {
+		return nil, fmt.Errorf("memory has no embedding")
+	}
+
+	// Use memory's embedding to find related news
+	news, err := newsRepo.SearchNewsByVector(ctx, memory.Embedding, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find related news: %w", err)
+	}
+
+	logger.Debug("found news related to memory",
+		zap.String("memory_id", memory.ID),
+		zap.String("lesson", memory.Lesson),
+		zap.Int("news_count", len(news)),
+	)
+
+	return news, nil
+}
+
+// FindMemoriesRelatedToNews finds agent memories related to current news
+// Used when agent sees important news and wants to recall past similar situations
+func (smm *SemanticMemoryManager) FindMemoriesRelatedToNews(
+	ctx context.Context,
+	agentID string,
+	personality string,
+	newsEmbedding []float32,
+	topK int,
+) ([]models.SemanticMemory, error) {
+	if len(newsEmbedding) == 0 {
+		return nil, fmt.Errorf("news has no embedding")
+	}
+
+	// Search personal memories using news embedding
+	personalMemories, err := smm.repository.SearchSemanticMemoriesByVector(ctx, agentID, newsEmbedding, topK*2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search memories: %w", err)
+	}
+
+	// Search collective memories
+	var collectiveMemories []models.CollectiveMemory
+	if personality != "" {
+		collectiveMemories, err = smm.repository.SearchCollectiveMemoriesByVector(ctx, personality, newsEmbedding, topK)
+		if err != nil {
+			logger.Warn("failed to search collective memories", zap.Error(err))
+			collectiveMemories = []models.CollectiveMemory{}
+		}
+	}
+
+	// Merge and rank
+	allMemories := smm.mergePersonalAndCollective(personalMemories, collectiveMemories)
+
+	// Take top K
+	if topK > len(allMemories) {
+		topK = len(allMemories)
+	}
+
+	result := allMemories[:topK]
+
+	logger.Debug("found memories related to news",
+		zap.String("agent_id", agentID),
+		zap.Int("found", len(result)),
+	)
+
+	return result, nil
+}
+
+// GenerateContextualSummary creates rich context by combining news + memories
+// Returns formatted text for agent's reasoning
+func (smm *SemanticMemoryManager) GenerateContextualSummary(
+	ctx context.Context,
+	agentID string,
+	personality string,
+	currentNews []models.NewsItem,
+) (string, error) {
+	if len(currentNews) == 0 {
+		return "", nil
+	}
+
+	summary := "📰 CURRENT NEWS CONTEXT:\n"
+
+	for i, news := range currentNews {
+		summary += fmt.Sprintf("%d. [%s] %s (impact: %d, sentiment: %.2f)\n",
+			i+1, news.Source, news.Title, news.Impact, news.Sentiment)
+
+		// Find related memories for this news
+		if len(news.Embedding) > 0 {
+			memories, err := smm.FindMemoriesRelatedToNews(ctx, agentID, personality, news.Embedding, 2)
+			if err == nil && len(memories) > 0 {
+				summary += "   💭 RELATED PAST EXPERIENCE:\n"
+				for _, mem := range memories {
+					summary += fmt.Sprintf("      - %s → %s\n", mem.Context, mem.Lesson)
+				}
+			}
+		}
+
+		// Show related news (cluster)
+		if news.ClusterID != nil && !news.IsClusterPrimary {
+			summary += "   🔗 (Part of larger story - see cluster for full context)\n"
+		}
+	}
+
+	return summary, nil
 }

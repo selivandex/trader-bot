@@ -374,6 +374,18 @@ func (c *ClaudeProvider) ValidateDecision(ctx context.Context, request *models.V
 	return &response, nil
 }
 
+// AdaptiveThink performs one iteration of adaptive chain-of-thought reasoning
+func (c *ClaudeProvider) AdaptiveThink(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Use 1500 tokens for thinking step (enough for reasoning + tool params)
+	responseText, err := c.callClaudeAPI(ctx, systemPrompt, userPrompt, 1500)
+	if err != nil {
+		return "", fmt.Errorf("adaptive think failed: %w", err)
+	}
+
+	// Return raw JSON response - caller will parse it
+	return responseText, nil
+}
+
 // callClaudeAPI helper method for agentic calls
 func (c *ClaudeProvider) callClaudeAPI(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	reqBody := map[string]interface{}{

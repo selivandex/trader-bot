@@ -36,6 +36,7 @@ type AgentPerformanceMetrics struct {
 // SemanticMemoryManager interface for memory operations
 type SemanticMemoryManager interface {
 	RecallRelevant(ctx context.Context, agentID string, personality string, query string, topK int) ([]models.SemanticMemory, error)
+	FindMemoriesRelatedToNews(ctx context.Context, agentID string, personality string, newsEmbedding []float32, topK int) ([]models.SemanticMemory, error)
 }
 
 // Notifier interface for sending alerts

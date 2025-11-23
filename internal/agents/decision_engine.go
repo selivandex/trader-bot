@@ -117,35 +117,36 @@ func (e *DecisionEngine) buildAgentPrompt(
 
 // formatDecisionReason formats the AI decision reason with signal breakdown
 func (e *DecisionEngine) formatDecisionReason(aiDecision *models.AIDecision, signals *SignalScores) string {
-	reason := fmt.Sprintf("[%s Agent via %s] %s\n\n",
-		e.config.Personality,
+	// Prepare signal data for template
+	signalsMap := map[string]ai.SignalWithWeight{
+		"technical": {
+			Score:     signals.Technical.Score,
+			Weight:    e.config.Specialization.TechnicalWeight,
+			Direction: signals.Technical.Direction,
+		},
+		"news": {
+			Score:     signals.News.Score,
+			Weight:    e.config.Specialization.NewsWeight,
+			Direction: signals.News.Direction,
+		},
+		"onchain": {
+			Score:     signals.OnChain.Score,
+			Weight:    e.config.Specialization.OnChainWeight,
+			Direction: signals.OnChain.Direction,
+		},
+		"sentiment": {
+			Score:     signals.Sentiment.Score,
+			Weight:    e.config.Specialization.SentimentWeight,
+			Direction: signals.Sentiment.Direction,
+		},
+	}
+
+	return ai.FormatDecisionReason(
+		string(e.config.Personality),
 		e.aiProvider.GetName(),
 		aiDecision.Reason,
+		signalsMap,
 	)
-
-	reason += "📊 Signal Analysis (Agent's Weights):\n"
-	reason += fmt.Sprintf("  🔧 Technical: %.1f/100 (%.0f%% weight) - %s\n",
-		signals.Technical.Score,
-		e.config.Specialization.TechnicalWeight*100,
-		signals.Technical.Direction,
-	)
-	reason += fmt.Sprintf("  📰 News: %.1f/100 (%.0f%% weight) - %s\n",
-		signals.News.Score,
-		e.config.Specialization.NewsWeight*100,
-		signals.News.Direction,
-	)
-	reason += fmt.Sprintf("  🐋 On-Chain: %.1f/100 (%.0f%% weight) - %s\n",
-		signals.OnChain.Score,
-		e.config.Specialization.OnChainWeight*100,
-		signals.OnChain.Direction,
-	)
-	reason += fmt.Sprintf("  💭 Sentiment: %.1f/100 (%.0f%% weight) - %s\n",
-		signals.Sentiment.Score,
-		e.config.Specialization.SentimentWeight*100,
-		signals.Sentiment.Direction,
-	)
-
-	return reason
 }
 
 // SignalAnalyzer analyzes market signals without AI
@@ -411,11 +412,4 @@ func getDirection(score float64) string {
 		return "bearish"
 	}
 	return "neutral"
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }

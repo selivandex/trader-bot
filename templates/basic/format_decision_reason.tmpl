@@ -1,0 +1,8 @@
+[{{.Personality}} Agent via {{.AIProvider}}] {{.AIReason}}
+
+📊 Signal Analysis (Agent's Weights):
+  🔧 Technical: {{printf "%.1f" .Technical.Score}}/100 ({{printf "%.0f" (mul .Technical.Weight 100)}}% weight) - {{.Technical.Direction}}
+  📰 News: {{printf "%.1f" .News.Score}}/100 ({{printf "%.0f" (mul .News.Weight 100)}}% weight) - {{.News.Direction}}
+  🐋 On-Chain: {{printf "%.1f" .OnChain.Score}}/100 ({{printf "%.0f" (mul .OnChain.Weight 100)}}% weight) - {{.OnChain.Direction}}
+  💭 Sentiment: {{printf "%.1f" .Sentiment.Score}}/100 ({{printf "%.0f" (mul .Sentiment.Weight 100)}}% weight) - {{.Sentiment.Direction}}
+

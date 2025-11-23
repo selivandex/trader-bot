@@ -1,0 +1,1 @@
+{{if .HasVolatility}}Current volatility (ATR): {{printf "%.2f" .Volatility}}{{else if .HasSupports}}Support levels: {{.Supports}}{{else}}Based on current data: {{.Question}}{{end}}

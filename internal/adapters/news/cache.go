@@ -2,22 +2,30 @@ package news
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
 
-// Cache handles news caching in database
+// Cache handles news caching in database with semantic search capabilities
 type Cache struct {
-	repo *Repository
+	repo            *Repository
+	embeddingClient *openai.Client // For generating embeddings
 }
 
 // NewCache creates new news cache
-func NewCache(repo *Repository) *Cache {
-	return &Cache{repo: repo}
+func NewCache(repo *Repository, embeddingClient *openai.Client) *Cache {
+	return &Cache{
+		repo:            repo,
+		embeddingClient: embeddingClient,
+	}
 }
 
 // Save saves news items to database (upsert)
@@ -115,4 +123,221 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// ============ SEMANTIC SEARCH & CLUSTERING ============
+
+// SearchNewsSemantics performs semantic search using embeddings
+// Finds news by meaning, not just keywords
+func (c *Cache) SearchNewsSemantics(
+	ctx context.Context,
+	semanticQuery string,
+	since time.Duration,
+	limit int,
+) ([]models.NewsItem, error) {
+	// Generate embedding for query
+	queryEmbedding, err := c.generateEmbedding(ctx, semanticQuery)
+	if err != nil {
+		logger.Warn("failed to generate query embedding, falling back to keyword search",
+			zap.Error(err),
+		)
+		return c.SearchNews(ctx, semanticQuery, since, limit)
+	}
+
+	// Vector similarity search
+	news, err := c.repo.SearchNewsByVector(ctx, queryEmbedding, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("semantic search failed: %w", err)
+	}
+
+	logger.Debug("semantic news search completed",
+		zap.String("query", semanticQuery),
+		zap.Int("found", len(news)),
+	)
+
+	return news, nil
+}
+
+// GenerateEmbeddingsForNews generates embeddings for news items
+// Called by news worker after AI evaluation
+func (c *Cache) GenerateEmbeddingsForNews(ctx context.Context, news []*models.NewsItem) error {
+	if len(news) == 0 {
+		return nil
+	}
+
+	for _, item := range news {
+		// Combine title + content for embedding
+		text := item.Title
+		if item.Content != "" {
+			text = text + ". " + item.Content
+		}
+
+		// Truncate if too long (OpenAI limit ~8k tokens)
+		if len(text) > 30000 {
+			text = text[:30000]
+		}
+
+		embedding, err := c.generateEmbedding(ctx, text)
+		if err != nil {
+			logger.Warn("failed to generate embedding for news",
+				zap.String("news_id", item.ID),
+				zap.Error(err),
+			)
+			// Use fallback
+			embedding = c.generateSimpleEmbedding(text)
+			item.EmbeddingModel = "fallback"
+		} else {
+			item.EmbeddingModel = "ada-002"
+		}
+
+		item.Embedding = embedding
+	}
+
+	logger.Debug("generated embeddings for news batch",
+		zap.Int("count", len(news)),
+	)
+
+	return nil
+}
+
+// ClusterSimilarNews groups similar news items (deduplication)
+// Same event from multiple sources → one cluster
+func (c *Cache) ClusterSimilarNews(ctx context.Context, news []*models.NewsItem, similarityThreshold float64) error {
+	if len(news) == 0 {
+		return nil
+	}
+
+	clustered := 0
+
+	for _, item := range news {
+		// Skip if already clustered or no embedding
+		if item.ClusterID != nil || len(item.Embedding) == 0 {
+			continue
+		}
+
+		// Find similar news in last 24h
+		similar, err := c.repo.FindSimilarNews(ctx, item.Embedding, similarityThreshold, 24*time.Hour, 10)
+		if err != nil {
+			logger.Warn("failed to find similar news",
+				zap.String("news_id", item.ID),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		if len(similar) > 0 {
+			// Check if any similar news already has cluster
+			var clusterID string
+			for _, sim := range similar {
+				if sim.ClusterID != nil && sim.ID != item.ID {
+					clusterID = *sim.ClusterID
+					break
+				}
+			}
+
+			// Create new cluster if none exists
+			if clusterID == "" {
+				clusterID = uuid.New().String()
+			}
+
+			// Assign cluster to this news
+			// Primary = highest impact source
+			isPrimary := true
+			for _, sim := range similar {
+				if sim.Impact > item.Impact {
+					isPrimary = false
+					break
+				}
+			}
+
+			err = c.repo.UpdateNewsCluster(ctx, item.ID, clusterID, isPrimary)
+			if err != nil {
+				logger.Warn("failed to update cluster",
+					zap.String("news_id", item.ID),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			item.ClusterID = &clusterID
+			item.IsClusterPrimary = isPrimary
+			clustered++
+
+			logger.Debug("clustered news",
+				zap.String("news_id", item.ID),
+				zap.String("cluster_id", clusterID),
+				zap.Int("similar_count", len(similar)),
+				zap.Bool("is_primary", isPrimary),
+			)
+		}
+	}
+
+	if clustered > 0 {
+		logger.Info("news clustering completed",
+			zap.Int("total", len(news)),
+			zap.Int("clustered", clustered),
+		)
+	}
+
+	return nil
+}
+
+// GetClusterNews retrieves all news in same cluster (related articles)
+func (c *Cache) GetClusterNews(ctx context.Context, clusterID string) ([]models.NewsItem, error) {
+	return c.repo.GetClusterNews(ctx, clusterID)
+}
+
+// ============ EMBEDDING GENERATION ============
+
+// generateEmbedding creates semantic embedding using OpenAI API
+func (c *Cache) generateEmbedding(ctx context.Context, text string) ([]float32, error) {
+	// Use OpenAI embeddings if available
+	if c.embeddingClient != nil {
+		resp, err := c.embeddingClient.CreateEmbeddings(
+			ctx,
+			openai.EmbeddingRequest{
+				Model: openai.AdaEmbeddingV2, // text-embedding-ada-002 (1536 dims)
+				Input: []string{text},
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(resp.Data) == 0 {
+			return nil, fmt.Errorf("no embedding data returned")
+		}
+
+		return resp.Data[0].Embedding, nil
+	}
+
+	// No client configured - use fallback
+	return c.generateSimpleEmbedding(text), nil
+}
+
+// generateSimpleEmbedding creates fallback embedding (1536 dims for compatibility)
+func (c *Cache) generateSimpleEmbedding(text string) []float32 {
+	// Simple bag-of-words embedding (1536 dimensions to match OpenAI)
+	embedding := make([]float32, 1536)
+
+	// Hash-based simple embedding
+	for i, char := range text {
+		idx := (int(char) + i) % 1536
+		embedding[idx] += 1.0
+	}
+
+	// Normalize
+	norm := float32(0.0)
+	for _, v := range embedding {
+		norm += v * v
+	}
+	norm = float32(math.Sqrt(float64(norm)))
+
+	if norm > 0 {
+		for i := range embedding {
+			embedding[i] /= norm
+		}
+	}
+
+	return embedding
 }

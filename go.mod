@@ -13,6 +13,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/sashabaranov/go-openai v1.41.2
 	github.com/shopspring/decimal v1.4.0
 	go.uber.org/zap v1.27.1
 )
@@ -43,7 +44,6 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
-	github.com/sashabaranov/go-openai v1.41.2 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect

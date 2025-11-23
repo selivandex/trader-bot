@@ -1,0 +1,1 @@
+Market: {{.Symbol}} at ${{printf "%.2f" .Price}} ({{printf "%.2f" .Change24h}}% 24h change). {{if .HasPosition}}Current position: {{.PositionSide}} with ${{printf "%.2f" .PositionPnL}} PnL.{{else}}No open position.{{end}}

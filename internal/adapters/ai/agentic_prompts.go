@@ -159,3 +159,119 @@ func BuildSummarizeMemoryPrompt(experience *models.TradeExperience) (systemPromp
 
 	return SplitPrompt(output)
 }
+
+// BuildAdaptiveThinkPrompt creates prompt for adaptive CoT reasoning
+func BuildAdaptiveThinkPrompt(thinkingData *AdaptiveThinkingData) (systemPrompt string, userPrompt string) {
+	if globalTemplates == nil {
+		logger.Error("templates not loaded")
+		return "", ""
+	}
+
+	output, err := executeTemplate("adaptive_think.tmpl", thinkingData)
+	if err != nil {
+		logger.Error("failed to render adaptive_think template", zap.Error(err))
+		return "", ""
+	}
+
+	return SplitPrompt(output)
+}
+
+// AdaptiveThinkingData contains all context for adaptive thinking prompt
+type AdaptiveThinkingData struct {
+	AgentName        string
+	Observation      string
+	MarketData       *models.MarketData // For template to format news/on-chain
+	CurrentPosition  *models.Position
+	RecalledMemories []models.SemanticMemory
+	ToolResults      map[string]interface{}
+	Questions        []QuestionAnswer
+	Options          []models.TradingOption
+	Evaluations      []models.OptionEvaluation
+	History          []AdaptiveThoughtStep
+	Iteration        int
+}
+
+// QuestionAnswer represents self-questioning
+type QuestionAnswer struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+// AdaptiveThoughtStep represents one thinking iteration (for template data)
+type AdaptiveThoughtStep struct {
+	Iteration  int     `json:"iteration"`
+	Action     string  `json:"action"`
+	Reasoning  string  `json:"reasoning"`
+	Confidence float64 `json:"confidence"`
+}
+
+// AnswerOwnQuestion formats agent's self-answer using template
+func AnswerOwnQuestion(question string, volatility float64, hasVolatility bool, supports []float64, hasSupports bool) string {
+	if globalTemplates == nil {
+		return fmt.Sprintf("Based on current data: %s", question)
+	}
+
+	data := map[string]interface{}{
+		"Question":      question,
+		"Volatility":    volatility,
+		"HasVolatility": hasVolatility,
+		"Supports":      supports,
+		"HasSupports":   hasSupports,
+	}
+
+	output, err := executeTemplate("answer_question.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render answer_question template", zap.Error(err))
+		return fmt.Sprintf("Based on current data: %s", question)
+	}
+
+	return output
+}
+
+// ObserveMarket formats basic market observation using template
+func ObserveMarket(symbol string, price, change24h float64, hasPosition bool, positionSide string, positionPnL float64) string {
+	if globalTemplates == nil {
+		return fmt.Sprintf("Market: %s at $%.2f", symbol, price)
+	}
+
+	data := map[string]interface{}{
+		"Symbol":       symbol,
+		"Price":        price,
+		"Change24h":    change24h,
+		"HasPosition":  hasPosition,
+		"PositionSide": positionSide,
+		"PositionPnL":  positionPnL,
+	}
+
+	output, err := executeTemplate("observe_market.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render observe_market template", zap.Error(err))
+		return fmt.Sprintf("Market: %s at $%.2f", symbol, price)
+	}
+
+	return output
+}
+
+// FormatAdaptiveReasoning formats reasoning trace from adaptive CoT
+func FormatAdaptiveReasoning(agentName string, history []AdaptiveThoughtStep, toolsUsed, questionsAsked int, decision *models.AIDecision) string {
+	if globalTemplates == nil {
+		return fmt.Sprintf("Decision: %s (confidence: %d%%)", decision.Action, decision.Confidence)
+	}
+
+	data := map[string]interface{}{
+		"AgentName":      agentName,
+		"IterationCount": len(history),
+		"ToolsUsedCount": toolsUsed,
+		"QuestionsCount": questionsAsked,
+		"History":        history,
+		"Decision":       decision,
+	}
+
+	output, err := executeTemplate("format_reasoning.tmpl", data)
+	if err != nil {
+		logger.Error("failed to render format_reasoning template", zap.Error(err))
+		return fmt.Sprintf("Decision: %s (confidence: %d%%)", decision.Action, decision.Confidence)
+	}
+
+	return output
+}

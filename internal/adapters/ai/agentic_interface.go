@@ -47,6 +47,11 @@ type AgenticProvider interface {
 	// ValidateDecision validates trading decision from validator perspective
 	// Validator critically evaluates: "Should this trade be executed? What are the risks?"
 	ValidateDecision(ctx context.Context, validationRequest *models.ValidationRequest) (*models.ValidationResponse, error)
+	
+	// AdaptiveThink performs one iteration of recursive chain-of-thought reasoning
+	// Agent decides next action: "What should I do next? Use tool? Ask question? Decide?"
+	// Returns JSON with action and reasoning for next step
+	AdaptiveThink(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 }
 
 // ChainOfThought represents step-by-step reasoning process

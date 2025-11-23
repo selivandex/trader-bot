@@ -7,7 +7,7 @@ import (
 func TestAnalyzer_AnalyzeSentiment(t *testing.T) {
 	t.Skip("Skipping keyword-based sentiment tests - production uses AI evaluation instead")
 	analyzer := NewAnalyzer()
-	
+
 	tests := []struct {
 		name     string
 		text     string
@@ -39,11 +39,11 @@ func TestAnalyzer_AnalyzeSentiment(t *testing.T) {
 			expected: "neutral",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			score := analyzer.AnalyzeSentiment(tt.text)
-			
+
 			var got string
 			if score > 0.2 {
 				got = "positive"
@@ -52,7 +52,7 @@ func TestAnalyzer_AnalyzeSentiment(t *testing.T) {
 			} else {
 				got = "neutral"
 			}
-			
+
 			if got != tt.expected {
 				t.Errorf("Expected %s sentiment, got %s (score: %.3f)",
 					tt.expected, got, score)
@@ -63,20 +63,19 @@ func TestAnalyzer_AnalyzeSentiment(t *testing.T) {
 
 func TestAnalyzer_ScoreRange(t *testing.T) {
 	analyzer := NewAnalyzer()
-	
+
 	texts := []string{
 		"bullish rally pump moon rocket",
 		"bearish crash dump panic",
 		"neutral stable sideways",
 	}
-	
+
 	for _, text := range texts {
 		score := analyzer.AnalyzeSentiment(text)
-		
+
 		if score < -1.0 || score > 1.0 {
 			t.Errorf("Score should be between -1.0 and 1.0, got %.3f for: %s",
 				score, text)
 		}
 	}
 }
-

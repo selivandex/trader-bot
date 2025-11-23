@@ -122,6 +122,27 @@ func (w *NewsWorker) fetchAndCache(ctx context.Context) {
 	// All news items are now evaluated (or have default scores)
 	evaluatedNews := summary.RecentNews
 
+	// Generate embeddings for semantic search
+	newsPointers := make([]*models.NewsItem, len(evaluatedNews))
+	for i := range evaluatedNews {
+		newsPointers[i] = &evaluatedNews[i]
+	}
+
+	if err := w.cache.GenerateEmbeddingsForNews(ctx, newsPointers); err != nil {
+		logger.Error("failed to generate embeddings", zap.Error(err))
+		// Don't return - save news even without embeddings
+	} else {
+		logger.Debug("embeddings generated successfully",
+			zap.Int("count", len(newsPointers)),
+		)
+	}
+
+	// Cluster similar news (deduplication) - 0.85 similarity threshold
+	if err := w.cache.ClusterSimilarNews(ctx, newsPointers, 0.85); err != nil {
+		logger.Warn("failed to cluster news", zap.Error(err))
+		// Non-critical, continue
+	}
+
 	// Cache only successfully evaluated news items
 	if err := w.cache.Save(ctx, evaluatedNews); err != nil {
 		logger.Error("failed to cache news", zap.Error(err))

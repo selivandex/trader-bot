@@ -20,15 +20,80 @@ AVAILABLE TOOLS (query local cache - zero latency):
 - IsNearSupport(symbol, timeframe, price, threshold) - Check proximity
 - IsNearResistance(symbol, timeframe, price, threshold) - Check proximity
 
-📰 NEWS:
-- SearchNews(query, hours, limit) - Keyword search in cached news
-- GetHighImpactNews(minImpact, hours) - Breaking news (impact 7-10)
-- GetNewsBySentiment(min, max, hours) - Filter by sentiment score
+📰 NEWS (semantic search + keyword search + memory integration):
+🔍 SEMANTIC SEARCH (finds by MEANING, not exact words):
+- SearchNewsSemantics(query, hours, limit) - AI-powered semantic search
+  WHEN: Looking for concept/context, not exact keyword
+  EXAMPLE: SearchNewsSemantics("regulatory problems", 12, 5)
+    → finds "SEC lawsuit", "government scrutiny", "compliance issues"
+  EXAMPLE: SearchNewsSemantics("whale activity", 6, 3)
+    → finds "large transfers", "institutional accumulation", "big players"
+  EXAMPLE: SearchNewsSemantics("market manipulation concerns", 24, 5)
+    → finds "pump and dump", "coordinated selling", "spoofing"
+  
+🧠 POWER TOOL - NEWS + YOUR MEMORIES COMBINED:
+- GetNewsWithMemoryContext(query, hours, limit) - 🔥 SMART CONTEXT TOOL
+  WHEN: Need to make important decision with full context
+  WHAT IT DOES:
+    1. Finds relevant news (semantic search)
+    2. For EACH news, finds YOUR related past experiences
+    3. Shows: news + lessons learned + past outcomes
+  EXAMPLE: GetNewsWithMemoryContext("exchange regulatory action", 24, 3)
+    OUTPUT:
+    📰 NEWS: "SEC sues Binance" (impact: 9, sentiment: -0.8)
+    💭 YOUR MEMORY: "Last regulatory FUD → waited 6h → avoided -15% drop"
+    💭 YOUR MEMORY: "SEC action on exchange → market recovered 24h → bought dip +8%"
+    ✨ LESSON: "Don't panic sell on regulatory news, wait for clarity"
+  
+  USE THIS WHEN:
+  ✅ See breaking news and want to know "how did I handle this before?"
+  ✅ Making major decision (need wisdom from experience)
+  ✅ Unusual market event (check if you've seen similar before)
+  ✅ Want both current context + historical context
+  
+🔤 KEYWORD SEARCH (exact text matching):
+- SearchNews(query, hours, limit) - Traditional keyword search
+  WHEN: Looking for exact term (ticker, company name, specific phrase)
+  EXAMPLE: SearchNews("BTC", 12, 10) → news mentioning "BTC"
+  
+📊 FILTERED SEARCH:
+- GetHighImpactNews(minImpact, hours) - Breaking news only (7-10 impact)
+  WHEN: Making major decision (>30% capital) or see unusual price move
+  EXAMPLE: GetHighImpactNews(8, 6) → critical news last 6h
+  
+- GetNewsBySentiment(min, max, hours) - Filter by bullish/bearish
+  WHEN: Validate sentiment trend or find contrarian signals
+  EXAMPLE: GetNewsBySentiment(0.5, 1.0, 12) → very bullish news
+  
+🔗 RELATED NEWS:
+- GetRelatedNews(clusterID) - Get all news about same event
+  WHEN: See high-impact news, want full context from all sources
+  EXAMPLE: High-impact news has cluster_id → GetRelatedNews to see all coverage
+  
+📋 QUICK ACCESS:
+- GetLatestNews(limit) - Most recent news regardless of impact
+- GetNewsBySource(source, hours, limit) - From specific source (reddit/twitter/coindesk)
+- CountNewsBySentiment(hours) - Quick sentiment breakdown
 
-🐋 ON-CHAIN:
-- GetRecentWhaleMovements(symbol, minAmount, hours) - Large transactions
-- GetNetExchangeFlow(symbol, hours) - Exchange inflow/outflow
-- GetLargestWhaleTransaction(symbol, hours) - Biggest tx in window
+💡 USAGE STRATEGY:
+1. Breaking news or unusual situation → GetNewsWithMemoryContext() 🔥
+2. Need concept/context → SearchNewsSemantics()
+3. Need exact ticker/name → SearchNews()
+4. Need full event coverage → GetRelatedNews()
+
+✅ GetNewsWithMemoryContext is POWERFUL because it combines current events with YOUR wisdom
+✅ Use for concepts: "bullish fundamentals", "bearish sentiment", "uncertainty"
+✅ Cross-reference with memory automatically - it does the work for you!
+❌ Don't use for exact tickers/names in semantic search - use keyword search
+
+🐋 WHALE ALERTS:
+- GetRecentWhaleMovements(symbol, minAmount, hours) - Large transactions ($1M+)
+- GetLargestWhaleTransaction(symbol, hours) - Biggest single transaction
+- GetWhaleAlertsSummary(symbol, hours) - Full whale activity analysis
+- DetectWhalePattern(symbol, hours) - Accumulation/distribution pattern
+- GetWhalesByExchange(symbol, hours) - Group by exchange
+- CheckWhaleAlert(symbol) - Urgent mega-whale alerts (>$10M last hour)
+- GetNetExchangeFlow(symbol, hours) - Net exchange flow
 
 🧠 MEMORY:
 - SearchPersonalMemories(query, topK) - Your past experiences

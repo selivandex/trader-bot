@@ -358,6 +358,18 @@ func (d *DeepSeekProvider) ValidateDecision(ctx context.Context, request *models
 	return &response, nil
 }
 
+// AdaptiveThink performs one iteration of adaptive chain-of-thought reasoning
+func (d *DeepSeekProvider) AdaptiveThink(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Use 1500 tokens for thinking step
+	responseText, err := d.callDeepSeekAPI(ctx, systemPrompt, userPrompt, 1500)
+	if err != nil {
+		return "", fmt.Errorf("adaptive think failed: %w", err)
+	}
+
+	// Return raw JSON response
+	return responseText, nil
+}
+
 func (d *DeepSeekProvider) callDeepSeekAPI(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	reqBody := map[string]interface{}{
 		"model": "deepseek-chat",

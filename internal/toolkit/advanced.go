@@ -221,17 +221,17 @@ func (t *LocalToolkit) BacktestStrategy(ctx context.Context, symbol string, look
 
 	// Simple backtest result based on actual performance
 	return &BacktestResult{
-		Symbol:         symbol,
-		Period:         time.Duration(lookbackHours) * time.Hour,
-		TotalTrades:    metrics.TotalTrades,
-		WinningTrades:  metrics.WinningTrades,
-		LosingTrades:   metrics.LosingTrades,
-		WinRate:        metrics.WinRate,
-		TotalReturn:    metrics.TotalPnL,
-		SharpeRatio:    metrics.SharpeRatio,
-		MaxDrawdown:    0, // TODO
-		BestTrade:      metrics.MaxWin,
-		WorstTrade:     metrics.MaxLoss,
+		Symbol:          symbol,
+		Period:          time.Duration(lookbackHours) * time.Hour,
+		TotalTrades:     metrics.TotalTrades,
+		WinningTrades:   metrics.WinningTrades,
+		LosingTrades:    metrics.LosingTrades,
+		WinRate:         metrics.WinRate,
+		TotalReturn:     metrics.TotalPnL,
+		SharpeRatio:     metrics.SharpeRatio,
+		MaxDrawdown:     0, // TODO
+		BestTrade:       metrics.MaxWin,
+		WorstTrade:      metrics.MaxLoss,
 		StrategyWeights: agent.Specialization,
 	}, nil
 }
@@ -302,3 +302,142 @@ func pearsonCorrelation(x, y []float64) float64 {
 	return numerator / (math.Sqrt(denomX) * math.Sqrt(denomY))
 }
 
+// ============ NEWS + MEMORY CROSS-REFERENCE (Phase 2) ============
+
+// FindNewsRelatedToCurrentSituation finds news semantically related to agent's reasoning
+// Use during CoT when agent is analyzing a situation and wants news context
+func (t *LocalToolkit) FindNewsRelatedToCurrentSituation(
+	ctx context.Context,
+	situationDescription string,
+	since time.Duration,
+	limit int,
+) ([]models.NewsItem, error) {
+	logger.Debug("toolkit: find_news_related_to_situation",
+		zap.String("agent_id", t.agentID),
+		zap.String("situation", situationDescription),
+	)
+
+	// Use semantic search to find relevant news
+	news, err := t.newsCache.SearchNewsSemantics(ctx, situationDescription, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find related news: %w", err)
+	}
+
+	return news, nil
+}
+
+// GetNewsWithMemoryContext gets news along with agent's related past experiences
+// Returns enriched context combining current news + relevant memories
+// This is the POWER TOOL that combines semantic news search with memory recall
+func (t *LocalToolkit) GetNewsWithMemoryContext(
+	ctx context.Context,
+	newsQuery string,
+	since time.Duration,
+	newsLimit int,
+) (string, error) {
+	logger.Debug("toolkit: get_news_with_memory_context",
+		zap.String("agent_id", t.agentID),
+		zap.String("query", newsQuery),
+	)
+
+	// 1. Search news semantically
+	news, err := t.newsCache.SearchNewsSemantics(ctx, newsQuery, since, newsLimit)
+	if err != nil {
+		return "", fmt.Errorf("failed to search news: %w", err)
+	}
+
+	if len(news) == 0 {
+		return "📰 No relevant news found for query: " + newsQuery, nil
+	}
+
+	// 2. Build rich context with news + related memories
+	result := fmt.Sprintf("📰 NEWS + MEMORY CONTEXT for '%s':\n\n", newsQuery)
+
+	for i, item := range news {
+		// News header
+		result += fmt.Sprintf("═══ NEWS #%d ═══\n", i+1)
+		result += fmt.Sprintf("🔖 [%s] %s\n", item.Source, item.Title)
+		result += fmt.Sprintf("📊 Impact: %d/10 | Sentiment: %.2f | Published: %s\n",
+			item.Impact, item.Sentiment, item.PublishedAt.Format("15:04 MST"))
+
+		// Show similarity if available
+		if item.SimilarityScore > 0 {
+			result += fmt.Sprintf("🎯 Relevance: %.0f%%\n", item.SimilarityScore*100)
+		}
+
+		// Content snippet
+		if item.Content != "" {
+			contentSnippet := item.Content
+			if len(contentSnippet) > 200 {
+				contentSnippet = contentSnippet[:200] + "..."
+			}
+			result += fmt.Sprintf("📝 %s\n", contentSnippet)
+		}
+
+		// 3. Find related memories using news embedding
+		if len(item.Embedding) > 0 {
+			memories, err := t.memoryManager.FindMemoriesRelatedToNews(
+				ctx,
+				t.agentID,
+				"", // personality will be inferred by memory manager
+				item.Embedding,
+				3, // Top 3 related memories
+			)
+
+			if err == nil && len(memories) > 0 {
+				result += "\n💭 RELATED PAST EXPERIENCES:\n"
+				for j, mem := range memories {
+					result += fmt.Sprintf("   %d. Context: %s\n", j+1, mem.Context)
+					result += fmt.Sprintf("      Action: %s\n", mem.Action)
+					result += fmt.Sprintf("      Outcome: %s\n", mem.Outcome)
+					result += fmt.Sprintf("      ✨ Lesson: %s\n", mem.Lesson)
+					result += fmt.Sprintf("      🎯 Importance: %.0f%% | Accessed: %dx\n",
+						mem.Importance*100, mem.AccessCount)
+				}
+			} else if len(memories) == 0 {
+				result += "\n💭 No similar past experiences found (new situation)\n"
+			}
+		}
+
+		// Check if part of larger cluster
+		if item.ClusterID != nil && !item.IsClusterPrimary {
+			result += "\n🔗 Part of larger story (cluster). Use GetRelatedNews() for full coverage.\n"
+		} else if item.ClusterID != nil && item.IsClusterPrimary {
+			result += "\n⭐ Primary source for this event cluster.\n"
+		}
+
+		result += "\n"
+	}
+
+	// 4. Add summary recommendations
+	result += "═══════════════════════════════════════\n"
+	result += "💡 HOW TO USE THIS CONTEXT:\n"
+	result += "• Check if past experiences match current situation\n"
+	result += "• Look for successful strategies from similar contexts\n"
+	result += "• Avoid repeating past mistakes (check lessons)\n"
+	result += "• Consider news impact + sentiment + your experience\n"
+
+	logger.Info("generated news+memory context",
+		zap.String("agent_id", t.agentID),
+		zap.Int("news_count", len(news)),
+		zap.String("query", newsQuery),
+	)
+
+	return result, nil
+}
+
+// GetNewsWithCluster gets a news item plus all related coverage from other sources
+// Useful when you see high-impact news and want complete context
+func (t *LocalToolkit) GetNewsWithCluster(
+	ctx context.Context,
+	newsID string,
+) (string, error) {
+	logger.Debug("toolkit: get_news_with_cluster",
+		zap.String("agent_id", t.agentID),
+		zap.String("news_id", newsID),
+	)
+
+	// This would need a method to get news by ID first
+	// For now, return instruction to use GetRelatedNews directly
+	return "Use GetRelatedNews(cluster_id) to see all coverage of same event", nil
+}

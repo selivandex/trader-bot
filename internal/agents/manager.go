@@ -56,7 +56,7 @@ type AgenticManager struct {
 type AgenticRunner struct {
 	Config           *models.AgentConfig
 	State            *models.AgentState
-	CoTEngine        *ChainOfThoughtEngine  // Chain-of-Thought reasoning
+	CoTEngine        *AdaptiveCoTEngine     // Adaptive Chain-of-Thought (true autonomous reasoning)
 	ReflectionEngine *ReflectionEngine      // Post-trade learning
 	PlanningEngine   *PlanningEngine        // Forward planning
 	MemoryManager    *SemanticMemoryManager // Episodic memory
@@ -187,7 +187,11 @@ func (am *AgenticManager) StartAgenticAgent(
 
 	// Create all agent components
 	memoryManager := NewSemanticMemoryManager(am.repository, aiProvider, am.embeddingClient)
-	cotEngine := NewChainOfThoughtEngine(config, aiProvider, memoryManager)
+	
+	// Use Adaptive CoT Engine (true autonomous reasoning, not fixed pipeline)
+	// Toolkit will be set later in initializeToolkit()
+	cotEngine := NewAdaptiveCoTEngine(config, aiProvider, memoryManager, nil)
+	
 	reflectionEngine := NewReflectionEngine(config, aiProvider, am.repository, memoryManager)
 	planningEngine := NewPlanningEngine(config, aiProvider, am.repository, memoryManager)
 
@@ -329,8 +333,8 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 	// Step 3: Get current position
 	position, _ := runner.Exchange.FetchPosition(ctx, runner.State.Symbol)
 
-	// Step 4: Execute Chain-of-Thought reasoning
-	decision, reasoningTrace, err := runner.CoTEngine.Think(ctx, marketData, position)
+	// Step 4: Execute Adaptive Chain-of-Thought reasoning
+	decision, reasoningTrace, err := runner.CoTEngine.ThinkAdaptively(ctx, marketData, position)
 	if err != nil {
 		return fmt.Errorf("thinking failed: %w", err)
 	}

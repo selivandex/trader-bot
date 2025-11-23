@@ -102,7 +102,16 @@ func run(ctx context.Context) error {
 		logger.Info("⚠️ Market repository using PostgreSQL fallback")
 	}
 
-	newsAggregator, newsCache, err := initNewsSystem(ctx, cfg, db, aiProviders)
+	// Create OpenAI client for embeddings (used by agents and news)
+	var embeddingClient *openai.Client
+	if cfg.AI.OpenAI.APIKey != "" {
+		embeddingClient = openai.NewClient(cfg.AI.OpenAI.APIKey)
+		logger.Info("✅ OpenAI embeddings client initialized")
+	} else {
+		logger.Warn("⚠️ OpenAI API key not set - using fallback embeddings (lower quality)")
+	}
+
+	newsAggregator, newsCache, err := initNewsSystem(ctx, cfg, db, aiProviders, embeddingClient)
 	if err != nil {
 		return err
 	}
@@ -127,16 +136,7 @@ func run(ctx context.Context) error {
 	// Initialize Telegram notifier (uses same templates)
 	notifier := initTelegramSystem(cfg, repos.userRepo, allTemplates)
 
-	// Create OpenAI client for embeddings (used by all agents)
-	var embeddingClient *openai.Client
-	if cfg.AI.OpenAI.APIKey != "" {
-		embeddingClient = openai.NewClient(cfg.AI.OpenAI.APIKey)
-		logger.Info("✅ OpenAI embeddings client initialized")
-	} else {
-		logger.Warn("⚠️ OpenAI API key not set - agents will use fallback embeddings (low quality)")
-	}
-
-	// Initialize and start agent system
+	// Initialize and start agent system (embeddingClient already created above)
 	agenticManager := initAgenticSystem(ctx, cfg, db, redisClient, marketRepo, newsAggregator, newsCache, allTemplates, aiProviders, notifier, embeddingClient)
 
 	// Start health server
@@ -372,7 +372,7 @@ func initAIProviders(cfg *config.Config) ([]ai.Provider, error) {
 }
 
 // initNewsSystem initializes news aggregation and analysis
-func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, aiProviders []ai.Provider) (*news.Aggregator, *news.Cache, error) {
+func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, aiProviders []ai.Provider, embeddingClient *openai.Client) (*news.Aggregator, *news.Cache, error) {
 	if !cfg.News.Enabled {
 		logger.Info("news system disabled")
 		return nil, nil, nil
@@ -380,7 +380,7 @@ func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, ai
 
 	sentimentAnalyzer := sentiment.NewAnalyzer()
 	newsRepo := news.NewRepository(db.DB())
-	newsCache := news.NewCache(newsRepo)
+	newsCache := news.NewCache(newsRepo, embeddingClient)
 
 	var newsProviders []news.Provider
 

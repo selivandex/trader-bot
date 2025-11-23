@@ -65,6 +65,28 @@ type AgentToolkit interface {
 	// GetNewsBySentiment filters news by sentiment (positive > 0.5, negative < -0.5)
 	GetNewsBySentiment(ctx context.Context, minSentiment, maxSentiment float64, since time.Duration) ([]models.NewsItem, error)
 
+	// GetLatestNews gets most recent news articles
+	GetLatestNews(ctx context.Context, limit int) ([]models.NewsItem, error)
+
+	// GetNewsBySource filters news by source (CoinDesk, CoinTelegraph, etc)
+	GetNewsBySource(ctx context.Context, source string, since time.Duration, limit int) ([]models.NewsItem, error)
+
+	// CountNewsBySentiment counts positive/negative/neutral news
+	CountNewsBySentiment(ctx context.Context, since time.Duration) (positive int, negative int, neutral int, err error)
+
+	// SearchNewsSemantics performs semantic search by meaning (not just keywords)
+	SearchNewsSemantics(ctx context.Context, semanticQuery string, since time.Duration, limit int) ([]models.NewsItem, error)
+
+	// GetRelatedNews gets all news in same cluster (same event from different sources)
+	GetRelatedNews(ctx context.Context, clusterID string) ([]models.NewsItem, error)
+
+	// GetNewsWithMemoryContext combines news search with related personal memories
+	// Returns formatted text with news + agent's past experiences + lessons learned
+	GetNewsWithMemoryContext(ctx context.Context, newsQuery string, since time.Duration, newsLimit int) (string, error)
+
+	// FindNewsRelatedToCurrentSituation finds news semantically related to agent's current reasoning
+	FindNewsRelatedToCurrentSituation(ctx context.Context, situationDescription string, since time.Duration, limit int) ([]models.NewsItem, error)
+
 	// ============ On-Chain Tools (from whale_transactions, exchange_flows cache) ============
 
 	// GetRecentWhaleMovements gets whale transactions above threshold
@@ -75,6 +97,18 @@ type AgentToolkit interface {
 
 	// GetLargestWhaleTransaction finds biggest transaction in time window
 	GetLargestWhaleTransaction(ctx context.Context, symbol string, hours int) (*models.WhaleTransaction, error)
+
+	// GetWhaleAlertsSummary gets comprehensive whale activity analysis
+	GetWhaleAlertsSummary(ctx context.Context, symbol string, hours int) (*WhaleAlertsSummary, error)
+
+	// DetectWhalePattern detects accumulation/distribution pattern
+	DetectWhalePattern(ctx context.Context, symbol string, hours int) (pattern string, strength float64, err error)
+
+	// GetWhalesByExchange groups whale transactions by exchange
+	GetWhalesByExchange(ctx context.Context, symbol string, hours int) (map[string][]models.WhaleTransaction, error)
+
+	// CheckWhaleAlert checks for urgent mega-whale activity (>$10M)
+	CheckWhaleAlert(ctx context.Context, symbol string) (*WhaleAlert, error)
 
 	// ============ Memory Tools (agent's personal and collective memory) ============
 

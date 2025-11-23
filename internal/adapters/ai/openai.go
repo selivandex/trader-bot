@@ -359,6 +359,18 @@ func (o *OpenAIProvider) ValidateDecision(ctx context.Context, request *models.V
 	return &response, nil
 }
 
+// AdaptiveThink performs one iteration of adaptive chain-of-thought reasoning
+func (o *OpenAIProvider) AdaptiveThink(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Use 1500 tokens for thinking step
+	responseText, err := o.callOpenAIAPI(ctx, systemPrompt, userPrompt, 1500)
+	if err != nil {
+		return "", fmt.Errorf("adaptive think failed: %w", err)
+	}
+
+	// Return raw JSON response
+	return responseText, nil
+}
+
 func (o *OpenAIProvider) callOpenAIAPI(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	reqBody := map[string]interface{}{
 		"model": "gpt-4-turbo-preview",

@@ -1,0 +1,15 @@
+🧠 [Adaptive Chain-of-Thought by {{.AgentName}}]
+
+Iterations: {{.IterationCount}}
+Tools Used: {{.ToolsUsedCount}}
+Questions Asked: {{.QuestionsCount}}
+
+THINKING PROCESS:
+{{range $i, $step := .History}}{{if lt $i 10}}{{add $step.Iteration 1}}. [{{$step.Action}}] {{$step.Reasoning}}
+{{end}}{{end}}{{if gt (len .History) 10}}... and {{sub (len .History) 10}} more steps
+{{end}}
+
+✅ FINAL DECISION: {{.Decision.Action}}
+Reasoning: {{.Decision.Reason}}
+Confidence: {{.Decision.Confidence}}%
+
