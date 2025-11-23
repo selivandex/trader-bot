@@ -1,0 +1,83 @@
+{{define "toolkit_tools"}}
+AVAILABLE TOOLS (query local cache - zero latency):
+
+📊 MARKET DATA:
+- GetCandles(timeframe, limit) - Fetch candles (1m, 5m, 15m, 1h, 4h, 1d)
+- GetLatestPrice(symbol, timeframe) - Current price from cache
+- GetCandleCount(symbol, timeframe) - Check data availability
+
+📈 INDICATORS:
+- CalculateIndicators(symbol, timeframe) - Full indicator set (RSI, MACD, BB)
+- CalculateRSI(symbol, timeframe, period) - Custom RSI calculation
+- CalculateEMA(symbol, timeframe, period) - Exponential Moving Average
+- CalculateSMA(symbol, timeframe, period) - Simple Moving Average
+- DetectTrend(symbol, timeframe) - Trend direction (uptrend/downtrend/sideways)
+- CalculateVolatility(symbol, timeframe, period) - ATR volatility measure
+
+📍 SUPPORT/RESISTANCE:
+- FindSupportLevels(symbol, timeframe, lookback) - Key support prices
+- FindResistanceLevels(symbol, timeframe, lookback) - Key resistance prices
+- IsNearSupport(symbol, timeframe, price, threshold) - Check proximity
+- IsNearResistance(symbol, timeframe, price, threshold) - Check proximity
+
+📰 NEWS:
+- SearchNews(query, hours, limit) - Keyword search in cached news
+- GetHighImpactNews(minImpact, hours) - Breaking news (impact 7-10)
+- GetNewsBySentiment(min, max, hours) - Filter by sentiment score
+
+🐋 ON-CHAIN:
+- GetRecentWhaleMovements(symbol, minAmount, hours) - Large transactions
+- GetNetExchangeFlow(symbol, hours) - Exchange inflow/outflow
+- GetLargestWhaleTransaction(symbol, hours) - Biggest tx in window
+
+🧠 MEMORY:
+- SearchPersonalMemories(query, topK) - Your past experiences
+- SearchCollectiveMemories(personality, query, topK) - Others' wisdom
+- GetRecentMemories(limit) - Latest memories
+
+⚠️ RISK ANALYSIS:
+- CalculatePositionRisk(symbol, side, size, leverage, stopLoss) - Full risk metrics
+- SimulateWorstCase(symbol, size, leverage) - Worst scenario analysis
+- CheckDrawdownRisk(agentID, symbol, proposedLoss) - Drawdown check
+- CalculateOptimalSize(agentID, symbol, winRate, avgWin, avgLoss) - Kelly sizing
+
+🔍 PATTERNS:
+- FindSimilarPatterns(currentCandles, lookback) - Historical pattern matching
+- GetPatternOutcome(patternHash) - Pattern success statistics
+
+👥 PEER LEARNING:
+- CompareWithPeers(personality, symbol) - Compare with same-type agents
+- GetTopPerformers(personality, limit) - Top N agents
+- LearnFromBestAgent(personality, symbol) - Best practices from winners
+
+📊 ADVANCED:
+- GetCorrelation(symbol1, symbol2, hours) - Asset correlation (-1 to +1)
+- CheckTimeframeAlignment(symbol, timeframes) - Multi-TF trend check
+- GetMarketRegime(symbol, timeframe) - Regime detection
+- GetVolatilityTrend(symbol, hours) - Vol expansion/contraction
+- AnalyzeLiquidity(symbol) - Liquidity score (0-100)
+- BacktestStrategy(symbol, lookbackHours) - Historical performance
+
+📈 PERFORMANCE:
+- GetWinRateBySignal(symbol) - Performance by signal type
+- GetCurrentStreak(symbol) - Current win/loss streak
+- GetRecentTrades(symbol, limit) - Trade history
+
+💬 COMMUNICATION:
+- SendUrgentAlert(message, priority) - Alert your owner if urgent (HIGH/MEDIUM/LOW)
+- LogThought(thought, confidence) - Log your reasoning for transparency
+- RequestHumanInput(question, options) - Ask owner for guidance (future)
+
+WHEN TO ALERT OWNER:
+✅ High-risk situation detected (potential liquidation, unusual patterns)
+✅ Breaking news with major impact (>9) affecting open position
+✅ Circuit breaker triggered or approaching
+✅ Discovered important insight from pattern analysis
+✅ Conflicting signals requiring human judgment
+❌ Routine decisions (don't spam owner)
+❌ Normal market movements
+❌ Low-confidence thoughts
+
+Use these tools strategically to make INFORMED decisions based on REAL data.
+{{end}}
+

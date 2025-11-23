@@ -11,17 +11,18 @@ import (
 type Config struct {
 	Mode TradingModeConfig `envconfig:""`
 
-	Exchanges ExchangesConfig `envconfig:"EXCHANGES"`
-	Trading   TradingConfig   `envconfig:"TRADING"`
-	AI        AIConfig        `envconfig:"AI"`
-	News      NewsConfig      `envconfig:"NEWS"`
-	OnChain   OnChainConfig   `envconfig:"ONCHAIN"`
-	Risk      RiskConfig      `envconfig:"RISK"`
-	Telegram  TelegramConfig  `envconfig:"TELEGRAM"`
-	Database  DatabaseConfig  `envconfig:"DATABASE"`
-	Redis     RedisConfig     `envconfig:"REDIS"`
-	Health    HealthConfig    `envconfig:"HEALTH"`
-	Logging   LoggingConfig   `envconfig:"LOGGING"`
+	Exchanges  ExchangesConfig  `envconfig:"EXCHANGES"`
+	Trading    TradingConfig    `envconfig:"TRADING"`
+	AI         AIConfig         `envconfig:"AI"`
+	News       NewsConfig       `envconfig:"NEWS"`
+	OnChain    OnChainConfig    `envconfig:"ONCHAIN"`
+	Risk       RiskConfig       `envconfig:"RISK"`
+	Telegram   TelegramConfig   `envconfig:"TELEGRAM"`
+	Database   DatabaseConfig   `envconfig:"DATABASE"`
+	ClickHouse ClickHouseConfig `envconfig:"CLICKHOUSE"`
+	Redis      RedisConfig      `envconfig:"REDIS"`
+	Health     HealthConfig     `envconfig:"HEALTH"`
+	Logging    LoggingConfig    `envconfig:"LOGGING"`
 }
 
 // TradingModeConfig represents trading mode
@@ -168,6 +169,16 @@ type DatabaseConfig struct {
 	SSLMode  string `envconfig:"DB_SSLMODE" default:"disable"`
 }
 
+// ClickHouseConfig represents ClickHouse connection parameters
+type ClickHouseConfig struct {
+	Host     string `envconfig:"CH_HOST" default:"localhost"`
+	Port     int    `envconfig:"CH_PORT" default:"9000"`
+	Database string `envconfig:"CH_DATABASE" default:"trader"`
+	User     string `envconfig:"CH_USER" default:"default"`
+	Password string `envconfig:"CH_PASSWORD" default:""`
+	Enabled  bool   `envconfig:"CH_ENABLED" default:"false"` // Must explicitly enable
+}
+
 // RedisConfig represents Redis connection parameters
 type RedisConfig struct {
 	Host     string `envconfig:"REDIS_HOST" default:"localhost"`
@@ -258,6 +269,14 @@ func (c *DatabaseConfig) GetDSN() string {
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		c.Host, c.Port, c.User, c.Password, c.Name, c.SSLMode,
 	)
+}
+
+// GetDSN returns ClickHouse DSN
+func (c *ClickHouseConfig) GetDSN() string {
+	dsn := fmt.Sprintf("clickhouse://%s:%s@%s:%d/%s",
+		c.User, c.Password, c.Host, c.Port, c.Database,
+	)
+	return dsn
 }
 
 // IsPaperTrading returns true if bot is in paper trading mode

@@ -14,28 +14,28 @@ import (
 type Provider interface {
 	// Analyze analyzes trading prompt and returns decision
 	Analyze(ctx context.Context, prompt *models.TradingPrompt) (*models.AIDecision, error)
-	
+
 	// EvaluateNews evaluates news item and updates its sentiment/impact scores (DEPRECATED: use EvaluateNewsBatch)
 	EvaluateNews(ctx context.Context, newsItem *models.NewsItem) error
-	
+
 	// EvaluateNewsBatch evaluates multiple news items in single API call (more efficient)
 	EvaluateNewsBatch(ctx context.Context, newsItems []*models.NewsItem) error
-	
+
 	// GetName returns provider name
 	GetName() string
-	
+
 	// GetCost returns approximate cost per request in USD
 	GetCost() float64
-	
+
 	// IsEnabled returns whether provider is enabled
 	IsEnabled() bool
 }
 
 // Ensemble manages multiple AI providers and creates consensus decisions
 type Ensemble struct {
-	providers      []Provider
-	minConsensus   int
-	enabledCount   int
+	providers    []Provider
+	minConsensus int
+	enabledCount int
 }
 
 // NewEnsemble creates new AI ensemble
@@ -46,7 +46,7 @@ func NewEnsemble(providers []Provider, minConsensus int) *Ensemble {
 			enabledCount++
 		}
 	}
-	
+
 	return &Ensemble{
 		providers:    providers,
 		minConsensus: minConsensus,
@@ -61,20 +61,20 @@ func (e *Ensemble) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*
 		decision *models.AIDecision
 		err      error
 	}
-	
+
 	results := make(chan result, e.enabledCount)
-	
+
 	for _, provider := range e.providers {
 		if !provider.IsEnabled() {
 			continue
 		}
-		
+
 		go func(p Provider) {
 			decision, err := p.Analyze(ctx, prompt)
 			results <- result{decision: decision, err: err}
 		}(provider)
 	}
-	
+
 	// Collect results
 	decisions := make([]*models.AIDecision, 0, e.enabledCount)
 	for i := 0; i < e.enabledCount; i++ {
@@ -86,14 +86,14 @@ func (e *Ensemble) Analyze(ctx context.Context, prompt *models.TradingPrompt) (*
 		}
 		decisions = append(decisions, res.decision)
 	}
-	
+
 	if len(decisions) == 0 {
 		return nil, fmt.Errorf("all AI providers failed")
 	}
-	
+
 	// Calculate consensus
 	consensus := e.calculateConsensus(decisions)
-	
+
 	return consensus, nil
 }
 
@@ -105,7 +105,7 @@ func (e *Ensemble) calculateConsensus(decisions []*models.AIDecision) *models.En
 			Agreement: false,
 		}
 	}
-	
+
 	if len(decisions) == 1 {
 		// Single decision, use it
 		return &models.EnsembleDecision{
@@ -115,34 +115,34 @@ func (e *Ensemble) calculateConsensus(decisions []*models.AIDecision) *models.En
 			Confidence: decisions[0].Confidence,
 		}
 	}
-	
+
 	// Count actions
 	actionCounts := make(map[models.AIAction]int)
 	actionDecisions := make(map[models.AIAction]*models.AIDecision)
 	totalConfidence := 0
-	
+
 	for _, decision := range decisions {
 		actionCounts[decision.Action]++
 		actionDecisions[decision.Action] = decision
 		totalConfidence += decision.Confidence
 	}
-	
+
 	// Find most common action
 	var mostCommonAction models.AIAction
 	maxCount := 0
-	
+
 	for action, count := range actionCounts {
 		if count > maxCount {
 			maxCount = count
 			mostCommonAction = action
 		}
 	}
-	
+
 	// Check if consensus reached
 	agreement := maxCount >= e.minConsensus
-	
+
 	avgConfidence := totalConfidence / len(decisions)
-	
+
 	return &models.EnsembleDecision{
 		Decisions:  decisions,
 		Consensus:  actionDecisions[mostCommonAction],
@@ -172,4 +172,3 @@ func (e *Ensemble) GetTotalCost() float64 {
 	}
 	return cost
 }
-

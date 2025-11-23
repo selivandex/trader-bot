@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"time"
 
 	"github.com/selivandex/trader-bot/pkg/models"
 )
@@ -63,13 +64,35 @@ type ThoughtStep struct {
 
 // ReasoningTrace captures agent's complete decision-making process
 type ReasoningTrace struct {
-	Observation     string              `json:"observation"`
-	RecalledMemories []models.SemanticMemory `json:"recalled_memories"`
-	GeneratedOptions []models.TradingOption  `json:"generated_options"`
-	Evaluations     []models.OptionEvaluation `json:"evaluations"`
-	FinalReasoning  string              `json:"final_reasoning"`
-	Decision        *models.AIDecision  `json:"decision"`
-	ChainOfThought  *ChainOfThought     `json:"chain_of_thought"`
+	Observation      string                    `json:"observation"`
+	RecalledMemories []models.SemanticMemory   `json:"recalled_memories"`
+	GeneratedOptions []models.TradingOption    `json:"generated_options"`
+	Evaluations      []models.OptionEvaluation `json:"evaluations"`
+	FinalReasoning   string                    `json:"final_reasoning"`
+	Decision         *models.AIDecision        `json:"decision"`
+	ChainOfThought   *ChainOfThought           `json:"chain_of_thought"`
+	ToolUsage        *ToolUsageTrace           `json:"tool_usage,omitempty"` // NEW: Track tool calls if tools were used
+}
+
+// ToolUsageTrace captures all tool invocations during reasoning
+type ToolUsageTrace struct {
+	SessionID string        `json:"session_id"`
+	AgentID   string        `json:"agent_id"`
+	ToolCalls []ToolCall    `json:"tool_calls"`
+	TotalTime time.Duration `json:"total_time"`
+	StartTime time.Time     `json:"start_time"`
+	EndTime   time.Time     `json:"end_time"`
+}
+
+// ToolCall represents one tool invocation
+type ToolCall struct {
+	ToolName   string                 `json:"tool_name"`
+	Parameters map[string]interface{} `json:"parameters"`
+	Result     interface{}            `json:"result,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+	StartTime  time.Time              `json:"start_time"`
+	Latency    time.Duration          `json:"latency"`
+	Success    bool                   `json:"success"`
 }
 
 // SupportsAgenticBehavior checks if provider supports agentic methods

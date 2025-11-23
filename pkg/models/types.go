@@ -85,12 +85,16 @@ type Ticker struct {
 
 // Candle represents OHLCV candlestick data
 type Candle struct {
-	Timestamp time.Time       `json:"timestamp"`
-	Open      decimal.Decimal `json:"open"`
-	High      decimal.Decimal `json:"high"`
-	Low       decimal.Decimal `json:"low"`
-	Close     decimal.Decimal `json:"close"`
-	Volume    decimal.Decimal `json:"volume"`
+	Symbol      string          `json:"symbol"`
+	Timeframe   string          `json:"timeframe"`
+	Timestamp   time.Time       `json:"timestamp"`
+	Open        decimal.Decimal `json:"open"`
+	High        decimal.Decimal `json:"high"`
+	Low         decimal.Decimal `json:"low"`
+	Close       decimal.Decimal `json:"close"`
+	Volume      decimal.Decimal `json:"volume"`
+	QuoteVolume decimal.Decimal `json:"quote_volume"`
+	Trades      int             `json:"trades"`
 }
 
 // OrderBook represents exchange order book
@@ -155,17 +159,29 @@ type Position struct {
 
 // Trade represents executed trade
 type Trade struct {
-	ID         int64           `json:"id" db:"id"`
-	Exchange   string          `json:"exchange" db:"exchange"`
-	Symbol     string          `json:"symbol" db:"symbol"`
-	Side       OrderSide       `json:"side" db:"side"`
-	Type       OrderType       `json:"type" db:"type"`
-	Amount     decimal.Decimal `json:"amount" db:"amount"`
-	Price      decimal.Decimal `json:"price" db:"price"`
-	Fee        decimal.Decimal `json:"fee" db:"fee"`
-	PnL        decimal.Decimal `json:"pnl" db:"pnl"`
-	AIDecision string          `json:"ai_decision" db:"ai_decision"` // JSONB
-	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
+	ID          string          `json:"id" db:"id"`
+	AgentID     string          `json:"agent_id" db:"agent_id"`
+	UserID      string          `json:"user_id" db:"user_id"`
+	Exchange    string          `json:"exchange" db:"exchange"`
+	Symbol      string          `json:"symbol" db:"symbol"`
+	Side        OrderSide       `json:"side" db:"side"`
+	Type        OrderType       `json:"type" db:"type"`
+	EntryPrice  decimal.Decimal `json:"entry_price" db:"entry_price"`
+	ExitPrice   decimal.Decimal `json:"exit_price" db:"exit_price"`
+	Size        decimal.Decimal `json:"size" db:"size"`
+	Leverage    int             `json:"leverage" db:"leverage"`
+	Amount      decimal.Decimal `json:"amount" db:"amount"`
+	Price       decimal.Decimal `json:"price" db:"price"`
+	Fee         decimal.Decimal `json:"fee" db:"fee"`
+	PnL         decimal.Decimal `json:"pnl" db:"pnl"`
+	PnLPercent  float64         `json:"pnl_percent" db:"pnl_percent"`
+	RealizedPnL decimal.Decimal `json:"realized_pnl" db:"realized_pnl"`
+	OpenedAt    time.Time       `json:"opened_at" db:"opened_at"`
+	ClosedAt    time.Time       `json:"closed_at" db:"closed_at"`
+	EntryReason string          `json:"entry_reason" db:"entry_reason"`
+	ExitReason  string          `json:"exit_reason" db:"exit_reason"`
+	AIDecision  string          `json:"ai_decision" db:"ai_decision"` // JSONB
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 }
 
 // AIDecision represents AI model decision

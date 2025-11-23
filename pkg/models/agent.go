@@ -168,6 +168,24 @@ type SignalScore struct {
 	Reason     string
 }
 
+// AgentMetric represents performance snapshot for ClickHouse
+type AgentMetric struct {
+	AgentID         string          `json:"agent_id"`
+	Timestamp       time.Time       `json:"timestamp"`
+	Symbol          string          `json:"symbol"`
+	Balance         decimal.Decimal `json:"balance"`
+	Equity          decimal.Decimal `json:"equity"`
+	PnL             decimal.Decimal `json:"pnl"`
+	PnLPercent      float64         `json:"pnl_percent"`
+	TotalTrades     int             `json:"total_trades"`
+	WinningTrades   int             `json:"winning_trades"`
+	LosingTrades    int             `json:"losing_trades"`
+	WinRate         float64         `json:"win_rate"`
+	SharpeRatio     float64         `json:"sharpe_ratio"`
+	MaxDrawdown     float64         `json:"max_drawdown"`
+	CurrentDrawdown float64         `json:"current_drawdown"`
+}
+
 // CalculateFinalScore computes weighted final score for agent decision
 func (w *WeightedDecisionInput) CalculateFinalScore() float64 {
 	finalScore := 0.0

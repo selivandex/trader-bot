@@ -12,6 +12,18 @@
 
 The agentic trading system is **architecturally strong (8/10)** with well-designed autonomous AI agents, but has **critical issues** that must be addressed before production deployment. This document outlines problems, recommendations, and an actionable checklist.
 
+### 🏗️ Architecture Decision: Hybrid PostgreSQL + ClickHouse
+
+**Key Decision:** Use **PostgreSQL for agent memory** (vector search required) and **ClickHouse for time-series data** (OHLCV, history, analytics).
+
+See [HYBRID_ARCHITECTURE.md](./HYBRID_ARCHITECTURE.md) for detailed implementation guide.
+
+**Reason:**
+
+- Agent semantic memory **requires vector similarity search** → Only PostgreSQL + pgvector can do this
+- OHLCV candles and historical data → ClickHouse is much faster and efficient
+- Active trades and agent state → PostgreSQL for ACID transactions
+
 ---
 
 ## 🔴 Critical Problems (Must Fix Before Production)

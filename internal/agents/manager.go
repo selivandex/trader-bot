@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
@@ -17,6 +18,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/indicators"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
+	"github.com/selivandex/trader-bot/pkg/templates"
 )
 
 // Notifier interface for sending notifications
@@ -31,20 +33,23 @@ type Notifier interface {
 // AgenticManager manages autonomous AI agents with full thinking capabilities
 // This is the upgraded manager that uses Chain-of-Thought, Memory, Reflection, and Planning
 type AgenticManager struct {
-	mu             sync.RWMutex
-	db             *sqlx.DB
-	redisClient    *redisAdapter.Client
-	lockFactory    redisAdapter.LockFactory // Factory for creating distributed locks
-	repository     *Repository
-	marketRepo     *market.Repository
-	newsAggregator *news.Aggregator
-	notifier       Notifier                      // Telegram notifier (can be nil)
-	aiProviders    map[string]ai.AgenticProvider // Only agentic providers
-	runningAgents  map[string]*AgenticRunner     // agentID -> runner
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup // For graceful shutdown
-	shutdownOnce   sync.Once      // Ensure shutdown runs once
+	mu              sync.RWMutex
+	db              *sqlx.DB
+	redisClient     *redisAdapter.Client
+	lockFactory     redisAdapter.LockFactory // Factory for creating distributed locks
+	repository      *Repository
+	marketRepo      *market.Repository
+	newsAggregator  *news.Aggregator
+	newsCache       *news.Cache                   // Direct access to news cache for toolkit
+	templateManager *templates.Manager            // Global templates for validators
+	notifier        Notifier                      // Telegram notifier (can be nil)
+	aiProviders     map[string]ai.AgenticProvider // Only agentic providers
+	embeddingClient *openai.Client                // OpenAI client for semantic memory embeddings
+	runningAgents   map[string]*AgenticRunner     // agentID -> runner
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup // For graceful shutdown
+	shutdownOnce    sync.Once      // Ensure shutdown runs once
 }
 
 // AgenticRunner represents a fully autonomous agent
@@ -73,8 +78,11 @@ func NewAgenticManager(
 	lockFactory redisAdapter.LockFactory,
 	marketRepo *market.Repository,
 	newsAggregator *news.Aggregator,
+	newsCache *news.Cache,
+	templateManager *templates.Manager,
 	aiProviders []ai.Provider,
 	notifier Notifier, // Can be nil if telegram disabled
+	embeddingClient *openai.Client, // For semantic memory embeddings
 ) *AgenticManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -91,17 +99,20 @@ func NewAgenticManager(
 	}
 
 	return &AgenticManager{
-		db:             db,
-		redisClient:    redisClient,
-		lockFactory:    lockFactory,
-		repository:     NewRepository(db),
-		marketRepo:     marketRepo,
-		newsAggregator: newsAggregator,
-		notifier:       notifier,
-		aiProviders:    agenticProviders,
-		runningAgents:  make(map[string]*AgenticRunner),
-		ctx:            ctx,
-		cancel:         cancel,
+		db:              db,
+		redisClient:     redisClient,
+		lockFactory:     lockFactory,
+		repository:      NewRepository(db),
+		marketRepo:      marketRepo,
+		newsAggregator:  newsAggregator,
+		newsCache:       newsCache,
+		templateManager: templateManager,
+		notifier:        notifier,
+		aiProviders:     agenticProviders,
+		embeddingClient: embeddingClient,
+		runningAgents:   make(map[string]*AgenticRunner),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 }
 
@@ -175,13 +186,13 @@ func (am *AgenticManager) StartAgenticAgent(
 	}
 
 	// Create all agent components
-	memoryManager := NewSemanticMemoryManager(am.repository, aiProvider)
+	memoryManager := NewSemanticMemoryManager(am.repository, aiProvider, am.embeddingClient)
 	cotEngine := NewChainOfThoughtEngine(config, aiProvider, memoryManager)
 	reflectionEngine := NewReflectionEngine(config, aiProvider, am.repository, memoryManager)
 	planningEngine := NewPlanningEngine(config, aiProvider, am.repository, memoryManager)
 
 	// Create validator council with all available AI providers for consensus
-	validatorCouncil := NewValidatorCouncil(config, am.aiProviders, nil)
+	validatorCouncil := NewValidatorCouncil(config, am.aiProviders, nil, am.templateManager)
 
 	// Create agent context
 	agentCtx, agentCancel := context.WithCancel(am.ctx)
@@ -203,6 +214,9 @@ func (am *AgenticManager) StartAgenticAgent(
 		LastReflectionAt: time.Now(),
 		LastPlanningAt:   time.Now(),
 	}
+
+	// Initialize toolkit for agent (NEW)
+	am.initializeToolkit(runner)
 
 	am.runningAgents[agentID] = runner
 

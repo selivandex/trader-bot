@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/internal/toolkit"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
@@ -20,6 +21,7 @@ type ChainOfThoughtEngine struct {
 	aiProvider     ai.AgenticProvider // Must support agentic methods
 	memoryManager  *SemanticMemoryManager
 	signalAnalyzer *SignalAnalyzer
+	toolkit        toolkit.AgentToolkit // Tools for querying cached data
 }
 
 // NewChainOfThoughtEngine creates new CoT engine
@@ -33,7 +35,13 @@ func NewChainOfThoughtEngine(
 		aiProvider:     aiProvider,
 		memoryManager:  memoryManager,
 		signalAnalyzer: NewSignalAnalyzer(config),
+		toolkit:        nil, // Will be set later via SetToolkit
 	}
+}
+
+// SetToolkit sets agent's toolkit after initialization
+func (cot *ChainOfThoughtEngine) SetToolkit(tk toolkit.AgentToolkit) {
+	cot.toolkit = tk
 }
 
 // Think executes complete Chain-of-Thought reasoning process

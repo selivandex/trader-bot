@@ -83,6 +83,7 @@ func NewValidatorCouncil(
 	agentConfig *models.AgentConfig,
 	aiProviders map[string]ai.AgenticProvider,
 	config *ValidatorConfig,
+	templateManager *templates.Manager,
 ) *ValidatorCouncil {
 	// Use agent's validation config if available, otherwise use provided config or defaults
 	if agentConfig.ValidationConfig != nil {
@@ -126,20 +127,6 @@ func NewValidatorCouncil(
 			ProviderName: providerName,
 			Weight:       weight,
 		})
-	}
-
-	// Load validator prompt templates
-	templateManager, err := templates.NewManagerWithValidation(
-		"./templates/validators",
-		[]string{
-			"risk_manager.tmpl",
-			"technical_expert.tmpl",
-			"market_psychologist.tmpl",
-		},
-	)
-	if err != nil {
-		logger.Warn("failed to load validator templates, will use fallback prompts", zap.Error(err))
-		templateManager = nil
 	}
 
 	logger.Info("🏛️ Validator council initialized",

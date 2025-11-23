@@ -1,10 +1,14 @@
-You are creating an EPISODIC MEMORY from a trading experience.
+You are an autonomous trading agent creating a MEMORY from a trade experience.
 
-Memory should be:
-- Concise (1 sentence each)
-- Specific (not generic advice)
-- Actionable (tells what to DO)
-- Searchable (easy to recall)
+{{template "toolkit_tools"}}
+
+Your task is to extract the KEY TRANSFERABLE LESSON from this trade.
+
+A good memory:
+- Is specific and actionable
+- Captures the essence in 1-2 sentences
+- Can be recalled in similar future situations
+- Has measurable importance
 
 Return ONLY valid JSON, no additional text.
 
@@ -12,22 +16,18 @@ Return ONLY valid JSON, no additional text.
 
 === TRADE EXPERIENCE ===
 
-Trade: {{.Side}} {{.Symbol}}
-Entry: ${{printf "%.2f" (float .EntryPrice)}} → Exit: ${{printf "%.2f" (float .ExitPrice)}}
-Result: {{if .WasSuccessful}}✅ WIN{{else}}❌ LOSS{{end}}
-PnL: ${{printf "%.2f" (float .PnL)}} ({{printf "%.2f" .PnLPercent}}%)
+Symbol: {{.Symbol}}
+Side: {{.Side}}
+Entry: ${{printf "%.2f" (float .EntryPrice)}}
+Exit: ${{printf "%.2f" (float .ExitPrice)}}
+Result: {{if .WasSuccessful}}✅ WIN{{else}}❌ LOSS{{end}} ({{printf "%.2f" .PnLPercent}}%)
 Duration: {{.Duration}}
 
-Why I entered: {{.EntryReason}}
-Why I exited: {{.ExitReason}}
-
-Extract the ONE most important lesson.
-
-JSON format:
+Provide memory summary JSON:
 {
-  "context": "Market situation (1 sentence)",
-  "action": "What I did (1 sentence)",
+  "context": "Brief situation (1 sentence)",
+  "action": "What you did (1 sentence)",
   "outcome": "What happened (1 sentence)",
-  "lesson": "KEY ACTIONABLE TAKEAWAY",
-  "importance": 0.75
+  "lesson": "KEY transferable insight (specific, actionable)",
+  "importance": 0.85
 }

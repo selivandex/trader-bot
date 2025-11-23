@@ -27,3 +27,8 @@ func DecimalFromString(s string) decimal.Decimal {
 	return d
 }
 
+// NewDecimalFromString alias for DecimalFromString (for consistency)
+func NewDecimalFromString(s string) decimal.Decimal {
+	return DecimalFromString(s)
+}
+

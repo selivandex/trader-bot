@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
@@ -16,15 +17,17 @@ import (
 // SemanticMemoryManager handles agent's episodic memory system
 // Agents remember past experiences and recall relevant ones for current situations
 type SemanticMemoryManager struct {
-	repository *Repository
-	aiProvider ai.AgenticProvider // For generating embeddings and summaries
+	repository      *Repository
+	aiProvider      ai.AgenticProvider // For summaries
+	embeddingClient *openai.Client     // For generating embeddings
 }
 
 // NewSemanticMemoryManager creates new semantic memory manager
-func NewSemanticMemoryManager(repository *Repository, aiProvider ai.AgenticProvider) *SemanticMemoryManager {
+func NewSemanticMemoryManager(repository *Repository, aiProvider ai.AgenticProvider, embeddingClient *openai.Client) *SemanticMemoryManager {
 	return &SemanticMemoryManager{
-		repository: repository,
-		aiProvider: aiProvider,
+		repository:      repository,
+		aiProvider:      aiProvider,
+		embeddingClient: embeddingClient,
 	}
 }
 
@@ -38,7 +41,10 @@ func (smm *SemanticMemoryManager) Store(ctx context.Context, agentID string, per
 	}
 
 	// Generate embedding for semantic search
-	embedding := smm.generateSimpleEmbedding(summary.Context + " " + summary.Lesson)
+	embedding, err := smm.generateEmbedding(summary.Context + " " + summary.Lesson)
+	if err != nil {
+		return fmt.Errorf("failed to generate embedding: %w", err)
+	}
 
 	// 1. Store as personal memory
 	memory := &models.SemanticMemory{
@@ -96,7 +102,10 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 	topK int,
 ) ([]models.SemanticMemory, error) {
 	// Generate embedding for current situation
-	queryEmbedding := smm.generateSimpleEmbedding(currentSituation)
+	queryEmbedding, err := smm.generateEmbedding(currentSituation)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+	}
 
 	// 1. Get personal memories
 	personalMemories, err := smm.repository.GetSemanticMemories(ctx, agentID, 100)
@@ -187,16 +196,40 @@ func (smm *SemanticMemoryManager) Forget(ctx context.Context, agentID string, th
 	return nil
 }
 
-// generateSimpleEmbedding creates simple embedding from text
-// In production, use OpenAI embeddings API or sentence transformers
+// generateEmbedding creates semantic embedding using OpenAI API
+func (smm *SemanticMemoryManager) generateEmbedding(text string) ([]float32, error) {
+	// Use OpenAI embeddings if available
+	if smm.embeddingClient != nil {
+		resp, err := smm.embeddingClient.CreateEmbeddings(
+			context.Background(),
+			openai.EmbeddingRequest{
+				Model: openai.AdaEmbeddingV2, // text-embedding-ada-002 (1536 dims)
+				Input: []string{text},
+			},
+		)
+		if err != nil {
+			logger.Warn("OpenAI embedding failed, using fallback",
+				zap.Error(err),
+			)
+			return smm.generateSimpleEmbedding(text), nil
+		}
+
+		return resp.Data[0].Embedding, nil
+	}
+
+	// Fallback to simple embeddings
+	logger.Warn("no embedding client configured, using simple embeddings")
+	return smm.generateSimpleEmbedding(text), nil
+}
+
+// generateSimpleEmbedding creates fallback embedding (1536 dims for compatibility)
 func (smm *SemanticMemoryManager) generateSimpleEmbedding(text string) []float32 {
-	// Simple bag-of-words embedding (128 dimensions)
-	// This is a placeholder - in production use proper embeddings
-	embedding := make([]float32, 128)
+	// Simple bag-of-words embedding (1536 dimensions to match OpenAI)
+	embedding := make([]float32, 1536)
 
 	// Hash-based simple embedding
 	for i, char := range text {
-		idx := (int(char) + i) % 128
+		idx := (int(char) + i) % 1536
 		embedding[idx] += 1.0
 	}
 

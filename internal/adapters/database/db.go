@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -42,6 +43,31 @@ func New(cfg *config.DatabaseConfig) (*DB, error) {
 		zap.String("host", cfg.Host),
 		zap.Int("port", cfg.Port),
 		zap.String("database", cfg.Name),
+	)
+
+	return &DB{conn: conn}, nil
+}
+
+// NewClickHouse creates new ClickHouse database connection
+func NewClickHouse(dsn string) (*DB, error) {
+	conn, err := sqlx.Connect("clickhouse", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to ClickHouse: %w", err)
+	}
+
+	// Set connection pool parameters
+	conn.SetMaxOpenConns(10)
+	conn.SetMaxIdleConns(5)
+	conn.SetConnMaxLifetime(10 * time.Minute)
+
+	// Test connection
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to ping ClickHouse: %w", err)
+	}
+
+	logger.Info("ClickHouse connection established",
+		zap.String("dsn", dsn),
 	)
 
 	return &DB{conn: conn}, nil

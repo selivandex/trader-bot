@@ -8,8 +8,9 @@ import (
 
 // WhaleTransaction represents large blockchain movement
 type WhaleTransaction struct {
-	ID              int64           `json:"id" db:"id"`
+	ID              string          `json:"id" db:"id"`
 	TxHash          string          `json:"tx_hash" db:"tx_hash"`
+	TransactionHash string          `json:"transaction_hash" db:"transaction_hash"` // Alias for TxHash
 	Blockchain      string          `json:"blockchain" db:"blockchain"`
 	Symbol          string          `json:"symbol" db:"symbol"`
 	Amount          decimal.Decimal `json:"amount" db:"amount"`
@@ -18,8 +19,10 @@ type WhaleTransaction struct {
 	ToAddress       string          `json:"to_address" db:"to_address"`
 	FromOwner       string          `json:"from_owner" db:"from_owner"` // "binance", "unknown"
 	ToOwner         string          `json:"to_owner" db:"to_owner"`
+	ExchangeName    string          `json:"exchange_name" db:"exchange_name"`
 	TransactionType string          `json:"transaction_type" db:"transaction_type"`
 	Timestamp       time.Time       `json:"timestamp" db:"timestamp"`
+	DetectedAt      time.Time       `json:"detected_at" db:"detected_at"`
 	ImpactScore     int             `json:"impact_score" db:"impact_score"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 }

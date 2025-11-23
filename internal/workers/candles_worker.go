@@ -6,34 +6,34 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/selivandex/trader-bot/internal/adapters/clickhouse"
 	"github.com/selivandex/trader-bot/internal/adapters/exchange"
-	"github.com/selivandex/trader-bot/internal/adapters/market"
 	"github.com/selivandex/trader-bot/pkg/logger"
 )
 
-// CandlesWorker periodically fetches and stores OHLCV candles
+// CandlesWorker periodically fetches and stores OHLCV candles to ClickHouse
 type CandlesWorker struct {
-	exchange      exchange.Exchange
-	marketRepo    *market.Repository
-	interval      time.Duration
-	symbols       []string
-	timeframes    []string
+	exchange     exchange.Exchange
+	candleWriter *clickhouse.CandleBatchWriter
+	interval     time.Duration
+	symbols      []string
+	timeframes   []string
 }
 
 // NewCandlesWorker creates new candles worker
 func NewCandlesWorker(
 	exchange exchange.Exchange,
-	marketRepo *market.Repository,
+	candleWriter *clickhouse.CandleBatchWriter,
 	interval time.Duration,
 	symbols []string,
 	timeframes []string,
 ) *CandlesWorker {
 	return &CandlesWorker{
-		exchange:   exchange,
-		marketRepo: marketRepo,
-		interval:   interval,
-		symbols:    symbols,
-		timeframes: timeframes,
+		exchange:     exchange,
+		candleWriter: candleWriter,
+		interval:     interval,
+		symbols:      symbols,
+		timeframes:   timeframes,
 	}
 }
 
@@ -44,32 +44,32 @@ func (cw *CandlesWorker) Start(ctx context.Context) error {
 		zap.Strings("symbols", cw.symbols),
 		zap.Strings("timeframes", cw.timeframes),
 	)
-	
+
 	// Fetch immediately
 	cw.fetchAndStore(ctx)
-	
+
 	ticker := time.NewTicker(cw.interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("candles worker stopped")
 			return ctx.Err()
-			
+
 		case <-ticker.C:
 			cw.fetchAndStore(ctx)
 		}
 	}
 }
 
-// fetchAndStore fetches candles and stores to database
+// fetchAndStore fetches candles and adds to batch writer
 func (cw *CandlesWorker) fetchAndStore(ctx context.Context) {
 	logger.Debug("fetching candles from exchange...")
-	
+
 	startTime := time.Now()
-	totalSaved := 0
-	
+	totalFetched := 0
+
 	for _, symbol := range cw.symbols {
 		for _, timeframe := range cw.timeframes {
 			// Fetch 100 candles
@@ -82,26 +82,22 @@ func (cw *CandlesWorker) fetchAndStore(ctx context.Context) {
 				)
 				continue
 			}
-			
-			// Save to database
-			if err := cw.marketRepo.SaveCandles(ctx, symbol, timeframe, candles); err != nil {
-				logger.Error("failed to save candles",
-					zap.String("symbol", symbol),
-					zap.String("timeframe", timeframe),
-					zap.Error(err),
-				)
-				continue
+
+			// Add all candles to batch buffer (will auto-flush)
+			for _, candle := range candles {
+				candle.Symbol = symbol
+				candle.Timeframe = timeframe
+				cw.candleWriter.AddCandle(candle)
 			}
-			
-			totalSaved += len(candles)
+
+			totalFetched += len(candles)
 		}
 	}
-	
+
 	latency := time.Since(startTime)
-	
-	logger.Info("candles saved",
-		zap.Int("total", totalSaved),
+
+	logger.Info("candles fetched and buffered",
+		zap.Int("total", totalFetched),
 		zap.Duration("latency", latency),
 	)
 }
-

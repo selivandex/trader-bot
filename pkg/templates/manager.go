@@ -75,13 +75,13 @@ func NewManager(templatesDir string) (*Manager, error) {
 		tmpl = result
 	}
 
-	// Load from all subdirectories (one level deep: templates/*/\*.tmpl)
+	// Load from all subdirectories (one level deep: templates/*/*.tmpl)
 	subPattern := filepath.Join(templatesDir, "*", "*.tmpl")
 	if result, err := tmpl.ParseGlob(subPattern); err == nil && result != nil {
 		tmpl = result
 	}
 
-	// Load even deeper nesting (templates/*/*/\*.tmpl)
+	// Load even deeper nesting (templates/*/*/*.tmpl)
 	deepPattern := filepath.Join(templatesDir, "*", "*", "*.tmpl")
 	if result, err := tmpl.ParseGlob(deepPattern); err == nil && result != nil {
 		tmpl = result
