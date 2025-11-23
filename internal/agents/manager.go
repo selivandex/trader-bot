@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
@@ -16,6 +15,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/adapters/news"
 	redisAdapter "github.com/selivandex/trader-bot/internal/adapters/redis"
 	"github.com/selivandex/trader-bot/internal/indicators"
+	"github.com/selivandex/trader-bot/pkg/embeddings"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 	"github.com/selivandex/trader-bot/pkg/templates"
@@ -35,6 +35,7 @@ type Notifier interface {
 type AgenticManager struct {
 	mu              sync.RWMutex
 	db              *sqlx.DB
+	chDB            *sqlx.DB // ClickHouse for metrics (optional)
 	redisClient     *redisAdapter.Client
 	lockFactory     redisAdapter.LockFactory // Factory for creating distributed locks
 	repository      *Repository
@@ -44,7 +45,7 @@ type AgenticManager struct {
 	templateManager *templates.Manager            // Global templates for validators
 	notifier        Notifier                      // Telegram notifier (can be nil)
 	aiProviders     map[string]ai.AgenticProvider // Only agentic providers
-	embeddingClient *openai.Client                // OpenAI client for semantic memory embeddings
+	embeddingClient *embeddings.Client            // Unified embedding client
 	runningAgents   map[string]*AgenticRunner     // agentID -> runner
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -74,6 +75,7 @@ type AgenticRunner struct {
 // NewAgenticManager creates new agentic agent manager
 func NewAgenticManager(
 	db *sqlx.DB,
+	chDB *sqlx.DB, // ClickHouse for metrics (optional, can be nil)
 	redisClient *redisAdapter.Client,
 	lockFactory redisAdapter.LockFactory,
 	marketRepo *market.Repository,
@@ -82,7 +84,7 @@ func NewAgenticManager(
 	templateManager *templates.Manager,
 	aiProviders []ai.Provider,
 	notifier Notifier, // Can be nil if telegram disabled
-	embeddingClient *openai.Client, // For semantic memory embeddings
+	embeddingClient *embeddings.Client, // Unified embedding client
 ) *AgenticManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -100,6 +102,7 @@ func NewAgenticManager(
 
 	return &AgenticManager{
 		db:              db,
+		chDB:            chDB,
 		redisClient:     redisClient,
 		lockFactory:     lockFactory,
 		repository:      NewRepository(db),
@@ -336,7 +339,20 @@ func (am *AgenticManager) executeAgenticCycle(ctx context.Context, runner *Agent
 	// Step 4: Execute Adaptive Chain-of-Thought reasoning
 	decision, reasoningTrace, err := runner.CoTEngine.ThinkAdaptively(ctx, marketData, position)
 	if err != nil {
+		// Check if interrupted by graceful shutdown (checkpoint saved)
+		if ctx.Err() == context.Canceled && decision == nil {
+			logger.Info("✅ thinking checkpointed - will resume after restart",
+				zap.String("agent", runner.Config.Name),
+			)
+			// Checkpoint already saved in CoT engine, just return
+			return fmt.Errorf("thinking checkpointed: %w", err)
+		}
 		return fmt.Errorf("thinking failed: %w", err)
+	}
+
+	// Ensure decision is not nil
+	if decision == nil {
+		return fmt.Errorf("CoT returned nil decision without error")
 	}
 
 	runner.LastDecisionAt = time.Now()
@@ -538,6 +554,13 @@ func (am *AgenticManager) StopAgenticAgent(ctx context.Context, agentID string) 
 	runner.CancelFunc()
 	runner.IsRunning = false
 
+	// Flush metrics buffer before stopping
+	if runner.CoTEngine != nil {
+		if err := runner.CoTEngine.Close(); err != nil {
+			logger.Warn("failed to close CoT engine (metrics may be lost)", zap.Error(err))
+		}
+	}
+
 	// Update state
 	runner.State.IsTrading = false
 	if err := am.repository.CreateAgentState(ctx, runner.State); err != nil {
@@ -721,6 +744,20 @@ func (am *AgenticManager) Shutdown() error {
 		defer cancel()
 
 		for agentID, runner := range am.runningAgents {
+			// Flush metrics buffer
+			if runner.CoTEngine != nil {
+				if err := runner.CoTEngine.Close(); err != nil {
+					logger.Warn("failed to close CoT engine on shutdown",
+						zap.String("agent_id", agentID),
+						zap.Error(err),
+					)
+				} else {
+					logger.Debug("metrics buffer flushed",
+						zap.String("agent_id", agentID),
+					)
+				}
+			}
+
 			// Save final state
 			runner.State.IsTrading = false
 			if err := am.repository.CreateAgentState(ctx, runner.State); err != nil {

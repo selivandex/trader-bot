@@ -22,6 +22,15 @@ type AdaptiveCoTEngine struct {
 	memoryManager  *SemanticMemoryManager
 	signalAnalyzer *SignalAnalyzer
 	toolkit        toolkit.AgentToolkit
+	toolRegistry   *toolkit.ToolRegistry // Dynamic tool dispatch
+}
+
+// Close gracefully shuts down CoT engine and flushes metrics
+func (cot *AdaptiveCoTEngine) Close() error {
+	if cot.toolRegistry != nil {
+		return cot.toolRegistry.Close()
+	}
+	return nil
 }
 
 // ThinkingState represents agent's current understanding during reasoning
@@ -79,13 +88,30 @@ func NewAdaptiveCoTEngine(
 	}
 }
 
-// SetToolkit sets toolkit after initialization
+// SetToolkit sets toolkit after initialization and creates registry
 func (cot *AdaptiveCoTEngine) SetToolkit(tk toolkit.AgentToolkit) {
 	cot.toolkit = tk
+	cot.toolRegistry = toolkit.NewToolRegistry(tk)
+	
+	// Set metrics logger from toolkit if available (for ClickHouse batching)
+	if localToolkit, ok := tk.(*toolkit.LocalToolkit); ok {
+		if metricsLogger := localToolkit.GetMetricsLogger(); metricsLogger != nil {
+			cot.toolRegistry.SetMetricsLogger(metricsLogger)
+			logger.Debug("metrics logger connected to tool registry",
+				zap.String("agent", cot.config.Name),
+			)
+		}
+	}
+
+	logger.Info("🔧 Tool registry initialized for agent",
+		zap.String("agent", cot.config.Name),
+		zap.Int("tools_available", cot.toolRegistry.GetToolCount()),
+	)
 }
 
 // ThinkAdaptively executes true recursive Chain-of-Thought
 // Agent decides what to do next at each iteration
+// Supports checkpoint/resume for graceful shutdown
 func (cot *AdaptiveCoTEngine) ThinkAdaptively(
 	ctx context.Context,
 	marketData *models.MarketData,
@@ -98,21 +124,81 @@ func (cot *AdaptiveCoTEngine) ThinkAdaptively(
 		zap.String("session", sessionID),
 	)
 
-	// Initialize thinking state
-	state := &ThinkingState{
-		Observation:     cot.observeMarket(marketData, position),
-		MarketData:      marketData,
-		CurrentPosition: position,
-		ToolResults:     make(map[string]interface{}),
-		Questions:       []QuestionAnswer{},
-		StartTime:       time.Now(),
+	// Check for interrupted session (resume after restart)
+	checkpoint, err := cot.memoryManager.repository.GetInterruptedSession(ctx, cot.config.ID)
+	var state *ThinkingState
+	var history []ThoughtStep
+
+	if err == nil && checkpoint != nil {
+		// Resume from checkpoint!
+		logger.Info("🔄 Resuming interrupted Chain-of-Thought",
+			zap.String("agent", cot.config.Name),
+			zap.String("checkpoint_session", checkpoint.SessionID),
+			zap.Duration("age", time.Since(checkpoint.StartedAt)),
+		)
+
+		// Deserialize state and history
+		state, history, err = cot.restoreCheckpoint(checkpoint)
+		if err != nil {
+			logger.Warn("failed to restore checkpoint, starting fresh", zap.Error(err))
+			state = nil // Will reinitialize below
+		} else {
+			// Update sessionID to the checkpoint one
+			sessionID = checkpoint.SessionID
+			// Update market data (it might have changed)
+			state.MarketData = marketData
+			state.CurrentPosition = position
+		}
 	}
 
-	history := []ThoughtStep{}
+	// Initialize fresh state if no checkpoint or restore failed
+	if state == nil {
+		state = &ThinkingState{
+			Observation:     cot.observeMarket(marketData, position),
+			MarketData:      marketData,
+			CurrentPosition: position,
+			ToolResults:     make(map[string]interface{}),
+			Questions:       []QuestionAnswer{},
+			StartTime:       time.Now(),
+		}
+		history = []ThoughtStep{}
+	}
+
 	maxIterations := 20 // Safety limit
 
 	// Iterative thinking loop
-	for iteration := 0; iteration < maxIterations; iteration++ {
+	startIteration := len(history) // Resume from where we left off
+	for iteration := startIteration; iteration < maxIterations; iteration++ {
+		// Check if context canceled (graceful shutdown)
+		select {
+		case <-ctx.Done():
+			logger.Warn("⚠️ Chain-of-Thought interrupted by shutdown - SAVING CHECKPOINT",
+				zap.String("agent", cot.config.Name),
+				zap.Int("iterations_completed", len(history)),
+				zap.Error(ctx.Err()),
+			)
+
+			// Save checkpoint for resume after restart
+			saveCtx, saveCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer saveCancel()
+
+			if err := cot.memoryManager.repository.SaveThinkingCheckpoint(
+				saveCtx, sessionID, cot.config.ID, state, history,
+			); err != nil {
+				logger.Error("failed to save thinking checkpoint", zap.Error(err))
+			} else {
+				logger.Info("✅ Thinking checkpoint saved - will resume after restart",
+					zap.String("session_id", sessionID),
+					zap.Int("steps_saved", len(history)),
+				)
+			}
+
+			// Return interrupted error (do NOT finalize decision)
+			return nil, nil, fmt.Errorf("thinking interrupted and checkpointed: %w", ctx.Err())
+		default:
+			// Continue thinking
+		}
+
 		state.IterationCount = iteration + 1
 
 		logger.Debug("🤔 thinking iteration",
@@ -123,6 +209,12 @@ func (cot *AdaptiveCoTEngine) ThinkAdaptively(
 		// Ask AI: "What should I do next?" (using templates)
 		nextStep, err := cot.decideNextStep(ctx, state, history)
 		if err != nil {
+			// Check if error is due to context cancellation
+			if ctx.Err() != nil {
+				logger.Warn("AI call interrupted by shutdown", zap.Error(ctx.Err()))
+				decision, trace := cot.finalizeDecision(state, history)
+				return decision, trace, fmt.Errorf("thinking interrupted: %w", ctx.Err())
+			}
 			logger.Error("failed to decide next step", zap.Error(err))
 			break
 		}
@@ -165,6 +257,14 @@ func (cot *AdaptiveCoTEngine) ThinkAdaptively(
 
 	// Convert to final decision
 	decision, trace := cot.finalizeDecision(state, history)
+
+	// Delete checkpoint (thinking completed successfully)
+	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer deleteCancel()
+
+	if err := cot.memoryManager.repository.DeleteCheckpoint(deleteCtx, sessionID); err != nil {
+		logger.Warn("failed to delete checkpoint", zap.Error(err))
+	}
 
 	logger.Info("🎯 Adaptive CoT complete",
 		zap.String("agent", cot.config.Name),
@@ -355,91 +455,24 @@ func (cot *AdaptiveCoTEngine) executeAction(
 	}
 }
 
-// executeToolCall dynamically executes tool based on agent's decision
+// executeToolCall dynamically executes tool based on agent's decision using Registry
 func (cot *AdaptiveCoTEngine) executeToolCall(
 	ctx context.Context,
 	toolName string,
 	params map[string]interface{},
 ) (interface{}, error) {
 
-	if cot.toolkit == nil {
-		return nil, fmt.Errorf("toolkit not available")
+	if cot.toolRegistry == nil {
+		return nil, fmt.Errorf("tool registry not initialized")
 	}
 
-	// Dynamic tool dispatch
-	switch toolName {
-	case "GetCandles":
-		symbol := params["symbol"].(string)
-		timeframe := params["timeframe"].(string)
-		limit := int(params["limit"].(float64))
-		return cot.toolkit.GetCandles(ctx, symbol, timeframe, limit)
-
-	case "CalculateRSI":
-		symbol := params["symbol"].(string)
-		timeframe := params["timeframe"].(string)
-		period := int(params["period"].(float64))
-		return cot.toolkit.CalculateRSI(ctx, symbol, timeframe, period)
-
-	case "CalculateVolatility":
-		symbol := params["symbol"].(string)
-		timeframe := params["timeframe"].(string)
-		period := int(params["period"].(float64))
-		return cot.toolkit.CalculateVolatility(ctx, symbol, timeframe, period)
-
-	case "SearchNews":
-		query := params["query"].(string)
-		hours := int(params["hours"].(float64))
-		limit := int(params["limit"].(float64))
-		return cot.toolkit.SearchNews(ctx, query, time.Duration(hours)*time.Hour, limit)
-
-	case "GetHighImpactNews":
-		minImpact := int(params["min_impact"].(float64))
-		hours := int(params["hours"].(float64))
-		return cot.toolkit.GetHighImpactNews(ctx, minImpact, time.Duration(hours)*time.Hour)
-
-	case "GetRecentWhaleMovements":
-		symbol := params["symbol"].(string)
-		minAmount := params["min_amount"].(float64)
-		hours := int(params["hours"].(float64))
-		return cot.toolkit.GetRecentWhaleMovements(ctx, symbol, minAmount, hours)
-
-	case "CalculatePositionRisk":
-		symbol := params["symbol"].(string)
-		side := models.PositionSide(params["side"].(string))
-		size := params["size"].(float64)
-		leverage := params["leverage"].(float64)
-		stopLoss := params["stop_loss"].(float64)
-		return cot.toolkit.CalculatePositionRisk(ctx, symbol, side, size, leverage, stopLoss)
-
-	case "SearchPersonalMemories":
-		query := params["query"].(string)
-		topK := int(params["top_k"].(float64))
-		return cot.toolkit.SearchPersonalMemories(ctx, query, topK)
-
-	case "DetectTrend":
-		symbol := params["symbol"].(string)
-		timeframe := params["timeframe"].(string)
-		return cot.toolkit.DetectTrend(ctx, symbol, timeframe)
-
-	case "FindSupportLevels":
-		symbol := params["symbol"].(string)
-		timeframe := params["timeframe"].(string)
-		lookback := int(params["lookback"].(float64))
-		return cot.toolkit.FindSupportLevels(ctx, symbol, timeframe, lookback)
-
-	case "CheckTimeframeAlignment":
-		symbol := params["symbol"].(string)
-		timeframes := []string{}
-		if tfs, ok := params["timeframes"].([]interface{}); ok {
-			for _, tf := range tfs {
-				timeframes = append(timeframes, tf.(string))
-			}
-		}
-		return cot.toolkit.CheckTimeframeAlignment(ctx, symbol, timeframes)
-
-	default:
-		return nil, fmt.Errorf("unknown tool: %s", toolName)
+	// Use registry for type-safe dynamic dispatch
+	result, err := cot.toolRegistry.Execute(ctx, toolName, params)
+	if err != nil {
+		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}
+
+	return result, nil
 }
 
 // answerOwnQuestion helps agent answer its own question using template
@@ -636,4 +669,42 @@ func (cot *AdaptiveCoTEngine) observeMarket(marketData *models.MarketData, posit
 		positionSide,
 		positionPnL,
 	)
+}
+
+// restoreCheckpoint deserializes checkpoint data for resuming
+func (cot *AdaptiveCoTEngine) restoreCheckpoint(
+	checkpoint *ReasoningCheckpoint,
+) (*ThinkingState, []ThoughtStep, error) {
+	var state ThinkingState
+	if err := json.Unmarshal(checkpoint.CheckpointState, &state); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal state: %w", err)
+	}
+
+	var history []ThoughtStep
+	if err := json.Unmarshal(checkpoint.CheckpointHistory, &history); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal history: %w", err)
+	}
+
+	// Reinitialize maps (JSON unmarshal might not preserve them)
+	if state.ToolResults == nil {
+		state.ToolResults = make(map[string]interface{})
+	}
+	if state.Questions == nil {
+		state.Questions = []QuestionAnswer{}
+	}
+	if state.Insights == nil {
+		state.Insights = []string{}
+	}
+	if state.Concerns == nil {
+		state.Concerns = []string{}
+	}
+
+	logger.Info("✅ Checkpoint restored",
+		zap.String("session", checkpoint.SessionID),
+		zap.Int("iterations", len(history)),
+		zap.Int("tools_used", len(state.ToolResults)),
+		zap.Int("questions", len(state.Questions)),
+	)
+
+	return &state, history, nil
 }

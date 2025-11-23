@@ -320,6 +320,9 @@ func (r *Repository) SearchNewsByVector(
 
 	// pgvector cosine distance search (1 - cosine_similarity)
 	// Lower distance = more similar
+	// Threshold: distance < 0.3 means similarity > 70%
+	const maxDistance = 0.3
+
 	query := `
 		SELECT 
 			id, source, title, content, url, author, published_at,
@@ -329,11 +332,12 @@ func (r *Repository) SearchNewsByVector(
 		FROM news_items
 		WHERE published_at > $2
 			AND embedding IS NOT NULL
+			AND (embedding <=> $1) < $3  -- Distance < 0.3 = similarity > 70%
 		ORDER BY embedding <=> $1
-		LIMIT $3
+		LIMIT $4
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), cutoff, limit)
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), cutoff, maxDistance, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to vector search news: %w", err)
 	}

@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/ai"
+	"github.com/selivandex/trader-bot/pkg/embeddings"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
@@ -19,12 +19,16 @@ import (
 // Agents remember past experiences and recall relevant ones for current situations
 type SemanticMemoryManager struct {
 	repository      *Repository
-	aiProvider      ai.AgenticProvider // For summaries
-	embeddingClient *openai.Client     // For generating embeddings
+	aiProvider      ai.AgenticProvider  // For summaries
+	embeddingClient *embeddings.Client  // Unified embedding client
 }
 
 // NewSemanticMemoryManager creates new semantic memory manager
-func NewSemanticMemoryManager(repository *Repository, aiProvider ai.AgenticProvider, embeddingClient *openai.Client) *SemanticMemoryManager {
+func NewSemanticMemoryManager(
+	repository *Repository,
+	aiProvider ai.AgenticProvider,
+	embeddingClient *embeddings.Client,
+) *SemanticMemoryManager {
 	return &SemanticMemoryManager{
 		repository:      repository,
 		aiProvider:      aiProvider,
@@ -42,7 +46,7 @@ func (smm *SemanticMemoryManager) Store(ctx context.Context, agentID string, per
 	}
 
 	// Generate embedding for semantic search
-	embedding, err := smm.generateEmbedding(summary.Context + " " + summary.Lesson)
+	embedding, err := smm.embeddingClient.Generate(ctx, summary.Context+" "+summary.Lesson)
 	if err != nil {
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -103,7 +107,7 @@ func (smm *SemanticMemoryManager) RecallRelevant(
 	topK int,
 ) ([]models.SemanticMemory, error) {
 	// Generate embedding for current situation
-	queryEmbedding, err := smm.generateEmbedding(currentSituation)
+	queryEmbedding, err := smm.embeddingClient.Generate(ctx, currentSituation)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
@@ -201,60 +205,7 @@ func (smm *SemanticMemoryManager) Forget(ctx context.Context, agentID string, th
 	return nil
 }
 
-// generateEmbedding creates semantic embedding using OpenAI API
-func (smm *SemanticMemoryManager) generateEmbedding(text string) ([]float32, error) {
-	// Use OpenAI embeddings if available
-	if smm.embeddingClient != nil {
-		resp, err := smm.embeddingClient.CreateEmbeddings(
-			context.Background(),
-			openai.EmbeddingRequest{
-				Model: openai.AdaEmbeddingV2, // text-embedding-ada-002 (1536 dims)
-				Input: []string{text},
-			},
-		)
-		if err != nil {
-			logger.Warn("OpenAI embedding failed, using fallback",
-				zap.Error(err),
-			)
-			return smm.generateSimpleEmbedding(text), nil
-		}
-
-		return resp.Data[0].Embedding, nil
-	}
-
-	// Fallback to simple embeddings
-	logger.Warn("no embedding client configured, using simple embeddings")
-	return smm.generateSimpleEmbedding(text), nil
-}
-
-// generateSimpleEmbedding creates fallback embedding (1536 dims for compatibility)
-func (smm *SemanticMemoryManager) generateSimpleEmbedding(text string) []float32 {
-	// Simple bag-of-words embedding (1536 dimensions to match OpenAI)
-	embedding := make([]float32, 1536)
-
-	// Hash-based simple embedding
-	for i, char := range text {
-		idx := (int(char) + i) % 1536
-		embedding[idx] += 1.0
-	}
-
-	// Normalize
-	norm := float32(0.0)
-	for _, v := range embedding {
-		norm += v * v
-	}
-	norm = float32(math.Sqrt(float64(norm)))
-
-	if norm > 0 {
-		for i := range embedding {
-			embedding[i] /= norm
-		}
-	}
-
-	return embedding
-}
-
-// cosineSimilarity calculates cosine similarity between two vectors
+// cosineSimilarity calculates cosine similarity between two vectors (kept for reference)
 func (smm *SemanticMemoryManager) cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0.0

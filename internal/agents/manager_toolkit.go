@@ -30,6 +30,18 @@ func (am *AgenticManager) initializeToolkit(runner *AgenticRunner) {
 		am.notifier,
 	)
 
+	// Set metrics logger if ClickHouse available
+	if am.chDB != nil {
+		agentToolkit.SetMetricsLogger(
+			am.chDB,
+			runner.Config.Name,
+			string(runner.Config.Personality),
+		)
+		logger.Debug("toolkit metrics logging enabled",
+			zap.String("agent_id", runner.Config.ID),
+		)
+	}
+
 	// Set toolkit in components that need it
 	runner.CoTEngine.SetToolkit(agentToolkit)
 

@@ -72,7 +72,7 @@ func NewServer(
 		startTime:    time.Now(),
 	}
 
-	// Health endpoints
+	// Health endpoints for K8s probes only
 	mux.HandleFunc("/health", s.handleHealth)    // Liveness probe
 	mux.HandleFunc("/ready", s.handleReadiness)  // Readiness probe
 	mux.HandleFunc("/healthz", s.handleHealth)   // Alias

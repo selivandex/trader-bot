@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/market"
@@ -17,11 +18,14 @@ import (
 // All methods read from Postgres/ClickHouse, never call exchange APIs
 type LocalToolkit struct {
 	agentID       string
+	agentName     string
+	personality   string
 	marketRepo    *market.Repository
 	newsCache     *news.Cache
 	agentRepo     AgentRepository
 	memoryManager SemanticMemoryManager
-	notifier      Notifier // For sending alerts to owner
+	notifier      Notifier              // For sending alerts to owner
+	metricsLogger *BatchedMetricsLogger // Batched metrics logger for ClickHouse
 }
 
 // NewLocalToolkit creates toolkit for agent
@@ -41,6 +45,27 @@ func NewLocalToolkit(
 		memoryManager: memoryManager,
 		notifier:      notifier,
 	}
+}
+
+// SetMetricsLogger sets ClickHouse metrics logger with batching (optional)
+func (t *LocalToolkit) SetMetricsLogger(chDB *sqlx.DB, agentName, personality string) {
+	t.agentName = agentName
+	t.personality = personality
+	if chDB != nil {
+		t.metricsLogger = NewBatchedMetricsLogger(chDB, agentName, personality)
+		logger.Debug("batched metrics logger initialized for toolkit",
+			zap.String("agent", agentName),
+			zap.String("personality", personality),
+		)
+	}
+}
+
+// GetMetricsLogger returns metrics logger for Registry to use
+func (t *LocalToolkit) GetMetricsLogger() MetricsLogger {
+	if t.metricsLogger == nil {
+		return nil
+	}
+	return t.metricsLogger
 }
 
 // ============ Market Data Tools ============
@@ -227,6 +252,8 @@ func (t *LocalToolkit) GetLargestWhaleTransaction(ctx context.Context, symbol st
 
 // SearchPersonalMemories queries agent's own semantic memory
 func (t *LocalToolkit) SearchPersonalMemories(ctx context.Context, query string, topK int) ([]models.SemanticMemory, error) {
+	startTime := time.Now()
+
 	logger.Debug("toolkit: search_personal_memories",
 		zap.String("agent_id", t.agentID),
 		zap.String("query", query),
@@ -236,6 +263,25 @@ func (t *LocalToolkit) SearchPersonalMemories(ctx context.Context, query string,
 	memories, err := t.memoryManager.RecallRelevant(ctx, t.agentID, "", query, topK)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search personal memories: %w", err)
+	}
+
+	executionTime := int(time.Since(startTime).Milliseconds())
+	avgSimilarity := float32(0.0) // Memories don't have similarity score
+	if len(memories) > 0 {
+		avgSimilarity = 1.0 // Found results = 100% match
+	}
+
+	// Log metrics
+	if t.metricsLogger != nil {
+		t.metricsLogger.LogToolUsage(
+			ctx,
+			"SearchPersonalMemories",
+			query,
+			len(memories),
+			avgSimilarity,
+			len(memories) > 0,
+			executionTime,
+		)
 	}
 
 	return memories, nil

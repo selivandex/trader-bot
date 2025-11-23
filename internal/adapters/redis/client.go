@@ -6,19 +6,21 @@ import (
 	"time"
 
 	"github.com/amyangfei/redlock-go/v3/redlock"
+	redis "github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 
 	"github.com/selivandex/trader-bot/internal/adapters/config"
 	"github.com/selivandex/trader-bot/pkg/logger"
 )
 
-// Client wraps RedLock manager for distributed locking
+// Client wraps RedLock manager for distributed locking + standard Redis for caching
 type Client struct {
 	lockManager *redlock.RedLock
 	redisAddrs  []string
+	cache       *redis.Client // Standard Redis client for caching
 }
 
-// New creates new Redis client with RedLock support
+// New creates new Redis client with RedLock support + caching
 func New(cfg *config.RedisConfig) (*Client, error) {
 	// Build Redis address
 	addr := fmt.Sprintf("tcp://%s:%d", cfg.Host, cfg.Port)
@@ -41,9 +43,31 @@ func New(cfg *config.RedisConfig) (*Client, error) {
 		zap.Strings("addresses", redisAddrs),
 	)
 
+	// Create standard Redis client for caching (embeddings, etc)
+	cacheClient := redis.NewClient(&redis.Options{
+		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Password:     cfg.Password,
+		DB:           cfg.DB,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+		PoolSize:     10,
+	})
+
+	// Test cache connection
+	if err := cacheClient.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to redis cache: %w", err)
+	}
+
+	logger.Info("redis cache client initialized",
+		zap.String("address", fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)),
+		zap.Int("db", cfg.DB),
+	)
+
 	return &Client{
 		lockManager: lockManager,
 		redisAddrs:  redisAddrs,
+		cache:       cacheClient,
 	}, nil
 }
 
@@ -63,6 +87,14 @@ func (c *Client) Close() error {
 		logger.Info("closing redis redlock connections")
 		// RedLock manager doesn't have explicit Close, connections close automatically
 	}
+
+	if c.cache != nil {
+		logger.Info("closing redis cache client")
+		if err := c.cache.Close(); err != nil {
+			return fmt.Errorf("failed to close redis cache: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -86,4 +118,26 @@ func (c *Client) Health() error {
 	_ = c.lockManager.UnLock(ctx, testLock)
 
 	return nil
+}
+
+// ============ CACHING METHODS ============
+
+// Get retrieves value from Redis cache
+func (c *Client) Get(ctx context.Context, key string) *redis.StringCmd {
+	return c.cache.Get(ctx, key)
+}
+
+// Set stores value in Redis cache with TTL
+func (c *Client) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+	return c.cache.Set(ctx, key, value, expiration)
+}
+
+// Del deletes keys from Redis cache
+func (c *Client) Del(ctx context.Context, keys ...string) *redis.IntCmd {
+	return c.cache.Del(ctx, keys...)
+}
+
+// Exists checks if key exists in Redis cache
+func (c *Client) Exists(ctx context.Context, keys ...string) *redis.IntCmd {
+	return c.cache.Exists(ctx, keys...)
 }

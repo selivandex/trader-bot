@@ -2,6 +2,7 @@ package toolkit
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -94,6 +95,8 @@ func (t *LocalToolkit) CountNewsBySentiment(ctx context.Context, since time.Dura
 // SearchNewsSemantics searches news by semantic meaning, not just keywords
 // Example: "regulatory problems" finds "SEC lawsuit", "government scrutiny", etc.
 func (t *LocalToolkit) SearchNewsSemantics(ctx context.Context, semanticQuery string, since time.Duration, limit int) ([]models.NewsItem, error) {
+	startTime := time.Now()
+
 	logger.Debug("toolkit: search_news_semantics",
 		zap.String("agent_id", t.agentID),
 		zap.String("query", semanticQuery),
@@ -106,11 +109,29 @@ func (t *LocalToolkit) SearchNewsSemantics(ctx context.Context, semanticQuery st
 		return nil, err
 	}
 
+	executionTime := int(time.Since(startTime).Milliseconds())
+	avgSimilarity := calculateAvgSimilarity(news)
+
 	logger.Info("semantic search completed",
 		zap.String("agent_id", t.agentID),
 		zap.String("query", semanticQuery),
 		zap.Int("found", len(news)),
+		zap.Float32("avg_similarity", avgSimilarity),
+		zap.Int("ms", executionTime),
 	)
+
+	// Log metrics to ClickHouse (non-blocking)
+	if t.metricsLogger != nil {
+		t.metricsLogger.LogToolUsage(
+			ctx,
+			"SearchNewsSemantics",
+			semanticQuery,
+			len(news),
+			avgSimilarity,
+			len(news) > 0, // Consider useful if found results
+			executionTime,
+		)
+	}
 
 	return news, nil
 }
@@ -133,4 +154,75 @@ func (t *LocalToolkit) GetRelatedNews(ctx context.Context, clusterID string) ([]
 	)
 
 	return news, nil
+}
+
+// FindNewsForMemory finds current news semantically related to a past memory
+// Use case: Agent recalls "Last time SEC sued exchange..." and wants current context
+func (t *LocalToolkit) FindNewsForMemory(ctx context.Context, memoryID string, hours time.Duration, limit int) ([]models.NewsItem, error) {
+	logger.Debug("toolkit: find_news_for_memory",
+		zap.String("agent_id", t.agentID),
+		zap.String("memory_id", memoryID),
+		zap.Duration("hours", hours),
+		zap.Int("limit", limit),
+	)
+
+	// Get the memory
+	memories, err := t.memoryManager.GetAllMemories(ctx, t.agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get memories: %w", err)
+	}
+
+	// Find the specific memory
+	var targetMemory *models.SemanticMemory
+	for i := range memories {
+		if memories[i].ID == memoryID {
+			targetMemory = &memories[i]
+			break
+		}
+	}
+
+	if targetMemory == nil {
+		return nil, fmt.Errorf("memory not found: %s", memoryID)
+	}
+
+	if len(targetMemory.Embedding) == 0 {
+		return nil, fmt.Errorf("memory has no embedding")
+	}
+
+	// Use memory's embedding to find semantically related current news
+	news, err := t.newsCache.GetRepo().SearchNewsByVector(ctx, targetMemory.Embedding, hours, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search news for memory: %w", err)
+	}
+
+	logger.Info("found news related to memory",
+		zap.String("agent_id", t.agentID),
+		zap.String("memory_lesson", targetMemory.Lesson),
+		zap.Int("news_count", len(news)),
+	)
+
+	return news, nil
+}
+
+// calculateAvgSimilarity calculates average similarity score from news results
+func calculateAvgSimilarity(news []models.NewsItem) float32 {
+	if len(news) == 0 {
+		return 0
+	}
+
+	var sum float64
+	count := 0
+
+	for _, item := range news {
+		if item.SimilarityScore > 0 {
+			sum += item.SimilarityScore
+			count++
+		}
+	}
+
+	if count == 0 {
+		return 0
+	}
+
+	return float32(sum / float64(count))
 }

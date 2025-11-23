@@ -585,6 +585,9 @@ func (r *Repository) GetSemanticMemories(ctx context.Context, agentID string, li
 func (r *Repository) SearchSemanticMemoriesByVector(ctx context.Context, agentID string, queryEmbedding []float32, limit int) ([]models.SemanticMemory, error) {
 	// Use pgvector's cosine distance operator <=>
 	// Lower distance = more similar
+	// Threshold: distance < 0.3 means similarity > 70%
+	const maxDistance = 0.3 // Only return results with 70%+ similarity
+
 	query := `
 		SELECT 
 			id, agent_id, context, action, outcome, lesson,
@@ -592,11 +595,12 @@ func (r *Repository) SearchSemanticMemoriesByVector(ctx context.Context, agentID
 			embedding <=> $1::vector AS distance
 		FROM agent_semantic_memories
 		WHERE agent_id = $2
+		  AND (embedding <=> $1::vector) < $3  -- Distance < 0.3 = similarity > 70%
 		ORDER BY distance ASC
-		LIMIT $3
+		LIMIT $4
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), agentID, limit)
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), agentID, maxDistance, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to vector search memories: %w", err)
 	}
@@ -640,6 +644,9 @@ func (r *Repository) SearchSemanticMemoriesByVector(ctx context.Context, agentID
 
 // SearchCollectiveMemoriesByVector performs vector similarity search for collective memories
 func (r *Repository) SearchCollectiveMemoriesByVector(ctx context.Context, personality string, queryEmbedding []float32, limit int) ([]models.CollectiveMemory, error) {
+	// Threshold: distance < 0.3 means similarity > 70%
+	const maxDistance = 0.3
+
 	query := `
 		SELECT 
 			id, personality, context, action, lesson,
@@ -648,11 +655,12 @@ func (r *Repository) SearchCollectiveMemoriesByVector(ctx context.Context, perso
 			embedding <=> $1::vector AS distance
 		FROM collective_agent_memories
 		WHERE personality = $2
+		  AND (embedding <=> $1::vector) < $3  -- Distance < 0.3 = similarity > 70%
 		ORDER BY distance ASC
-		LIMIT $3
+		LIMIT $4
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), personality, limit)
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(queryEmbedding), personality, maxDistance, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to vector search collective memories: %w", err)
 	}
@@ -1359,4 +1367,148 @@ func (r *Repository) GetAgentsToRestore(ctx context.Context) ([]AgentToRestore, 
 	}
 
 	return agents, nil
+}
+
+// ========== Chain-of-Thought Checkpoint Methods ==========
+
+// SaveThinkingCheckpoint saves intermediate CoT state during graceful shutdown
+func (r *Repository) SaveThinkingCheckpoint(
+	ctx context.Context,
+	sessionID string,
+	agentID string,
+	state interface{}, // ThinkingState
+	history interface{}, // []ThoughtStep
+) error {
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal state: %w", err)
+	}
+
+	historyJSON, err := json.Marshal(history)
+	if err != nil {
+		return fmt.Errorf("failed to marshal history: %w", err)
+	}
+
+	query := `
+		INSERT INTO agent_reasoning_sessions (
+			session_id, agent_id, observation, recalled_memories,
+			generated_options, evaluations, final_reasoning, decision,
+			is_interrupted, checkpoint_state, checkpoint_history,
+			started_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (session_id) DO UPDATE SET
+			is_interrupted = true,
+			checkpoint_state = $10,
+			checkpoint_history = $11
+	`
+
+	_, err = r.db.ExecContext(
+		ctx, query,
+		sessionID,
+		agentID,
+		"[INTERRUPTED]", // observation
+		"[]",            // recalled_memories
+		"[]",            // generated_options
+		"[]",            // evaluations
+		"",              // final_reasoning
+		"{}",            // decision
+		true,            // is_interrupted
+		stateJSON,
+		historyJSON,
+		time.Now(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to save checkpoint: %w", err)
+	}
+
+	return nil
+}
+
+// ReasoningCheckpoint holds checkpoint data for resuming
+type ReasoningCheckpoint struct {
+	SessionID         string    `db:"session_id"`
+	AgentID           string    `db:"agent_id"`
+	CheckpointState   []byte    `db:"checkpoint_state"`
+	CheckpointHistory []byte    `db:"checkpoint_history"`
+	StartedAt         time.Time `db:"started_at"`
+}
+
+// GetInterruptedSession retrieves interrupted reasoning session for agent
+func (r *Repository) GetInterruptedSession(ctx context.Context, agentID string) (*ReasoningCheckpoint, error) {
+	query := `
+		SELECT session_id, agent_id, checkpoint_state, checkpoint_history, started_at
+		FROM agent_reasoning_sessions
+		WHERE agent_id = $1
+		  AND is_interrupted = true
+		  AND completed_at IS NULL
+		ORDER BY started_at DESC
+		LIMIT 1
+	`
+
+	var checkpoint ReasoningCheckpoint
+	err := r.db.QueryRowContext(ctx, query, agentID).Scan(
+		&checkpoint.SessionID,
+		&checkpoint.AgentID,
+		&checkpoint.CheckpointState,
+		&checkpoint.CheckpointHistory,
+		&checkpoint.StartedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No interrupted session
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get interrupted session: %w", err)
+	}
+
+	return &checkpoint, nil
+}
+
+// CompleteReasoningSession marks session as completed (removes checkpoint)
+func (r *Repository) CompleteReasoningSession(
+	ctx context.Context,
+	sessionID string,
+	decision interface{},
+	finalReasoning string,
+) error {
+	decisionJSON, err := json.Marshal(decision)
+	if err != nil {
+		return fmt.Errorf("failed to marshal decision: %w", err)
+	}
+
+	query := `
+		UPDATE agent_reasoning_sessions
+		SET is_interrupted = false,
+		    checkpoint_state = NULL,
+		    checkpoint_history = NULL,
+		    decision = $2,
+		    final_reasoning = $3,
+		    completed_at = NOW(),
+		    duration_ms = EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000,
+		    executed = true
+		WHERE session_id = $1
+	`
+
+	_, err = r.db.ExecContext(ctx, query, sessionID, decisionJSON, finalReasoning)
+	if err != nil {
+		return fmt.Errorf("failed to complete session: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteCheckpoint removes checkpoint after successful completion
+func (r *Repository) DeleteCheckpoint(ctx context.Context, sessionID string) error {
+	query := `
+		UPDATE agent_reasoning_sessions
+		SET is_interrupted = false,
+		    checkpoint_state = NULL,
+		    checkpoint_history = NULL
+		WHERE session_id = $1
+	`
+
+	_, err := r.db.ExecContext(ctx, query, sessionID)
+	return err
 }

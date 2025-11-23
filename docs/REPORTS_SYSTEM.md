@@ -5,6 +5,7 @@
 ## Overview
 
 Автоматическая система отчетов для агентов с тремя способами использования:
+
 1. **Автоматически** - агент отправляет отчет каждый день в 00:00:01
 2. **По команде** - пользователь запрашивает через Telegram `/report`
 3. **Из кода** - агент может вызвать `toolkit.GenerateDailyReport()` сам
@@ -39,7 +40,7 @@ type DailyReport struct {
     AgentName   string
     Symbol      string
     Date        time.Time
-    
+
     Metrics: {
         TotalDecisions      int    // 48 (каждые 30 мин)
         ExecutedTrades      int    // 3
@@ -51,13 +52,14 @@ type DailyReport struct {
         LongCount/ShortCount int
         HighConfidenceCount int    // Решения с 80%+ уверенностью
     }
-    
+
     Decisions []AgentDecision  // Все решения за день
     Insights  []string         // Ключевые инсайты
 }
 ```
 
 **Когда генерируется:**
+
 - Автоматически в 00:00:01 (за вчера)
 - По команде `/report today` или `/report yesterday`
 - Агент может вызвать `toolkit.SendDailyReportToOwner()`
@@ -81,6 +83,7 @@ type WeeklyReport struct {
 ```
 
 **Когда генерируется:**
+
 - По команде `/report week`
 - Каждое воскресенье в 23:59 (опционально)
 
@@ -97,6 +100,7 @@ request := ReportRequest{
 ```
 
 **Когда:**
+
 - `/report custom 2024-01-01 2024-01-31`
 - Для анализа конкретного периода
 
@@ -108,7 +112,7 @@ request := ReportRequest{
 // В AdaptiveCoTEngine или manager
 func (cot *AdaptiveCoTEngine) checkMidnightReport(ctx context.Context) {
     now := time.Now()
-    
+
     // Check if it's midnight
     if now.Hour() == 0 && now.Minute() == 0 {
         // Agent generates and sends own report
@@ -129,7 +133,7 @@ func (bot *AgentBot) handleReportCommand(ctx context.Context, userID, agentID st
     if len(args) > 0 {
         period = args[0] // "today", "yesterday", "week"
     }
-    
+
     var date time.Time
     switch period {
     case "today":
@@ -140,17 +144,17 @@ func (bot *AgentBot) handleReportCommand(ctx context.Context, userID, agentID st
         // Generate weekly report
         return bot.sendWeeklyReport(ctx, userID, agentID)
     }
-    
+
     // Use reports package
     generator := reports.NewGenerator(bot.agentRepo, bot.templates)
     report, err := generator.GenerateDailyReport(ctx, agentID, "BTC/USDT", date)
     if err != nil {
         return err
     }
-    
+
     text, _ := generator.RenderDailyReport(ctx, report)
     bot.telegram.SendMessage(userID, text)
-    
+
     return nil
 }
 ```
@@ -178,6 +182,7 @@ templates/reports/daily_report.tmpl
 ```
 
 Содержит:
+
 - Trading activity (решения, сделки, холды)
 - Performance (PnL, win rate, лучшая/худшая сделка)
 - Key insights (важные открытия дня)
@@ -209,7 +214,7 @@ func (am *AgenticManager) startReportScheduler(ctx context.Context) {
         reports.NewGenerator(am.repository, am.templateManager),
         am.notifier,
     )
-    
+
     go reportScheduler.Start(ctx)
 }
 ```
@@ -274,18 +279,23 @@ Daily Return: +12.55%
 ## Benefits
 
 ### 1. Transparency
+
 Владелец видит ВСЕ, что делал агент за день.
 
 ### 2. Accountability
+
 Агент отчитывается о результатах automatically.
 
 ### 3. Learning
+
 Insights показывают, что агент узнал.
 
 ### 4. On-Demand
+
 Можно запросить отчет в любой момент.
 
 ### 5. Agent Self-Awareness
+
 Агент может сам проанализировать свой день и скорректироваться.
 
 ## Future Enhancements
@@ -301,4 +311,3 @@ Insights показывают, что агент узнал.
 ---
 
 **Reports System делает агентов прозрачными и подотчетными владельцу.**
-

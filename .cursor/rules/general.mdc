@@ -4,9 +4,302 @@ alwaysApply: true
 
 <!-- @format -->
 
-DON'T CREATE .md DOCS FILES WITHOUT MY PERMISSION
+# AI Crypto Trading Bot - Project Context
 
-Never write direct sql queries, use repository pattern!
+## Project Overview
 
-WRONG: write SQL queries direct in components / packages 
-CORRECT: write SQL in repositories and use repo in code
+**Autonomous AI Trading Bot** for cryptocurrency futures markets (Binance, Bybit). This is NOT a simple rule-based bot - it uses truly autonomous AI agents with human-like reasoning, memory, and learning capabilities.
+
+## Core Technology Stack
+
+- **Language**: Go 1.25.3
+- **Databases**: PostgreSQL (main), ClickHouse (market data), Redis (locks, cache)
+- **AI Providers**: DeepSeek, Claude (Anthropic), OpenAI GPT
+- **Exchanges**: Binance, Bybit (via CCXT)
+- **Orchestration**: Telegram Bot for management
+- **Deployment**: Docker, K8s-ready with health checks and distributed locks
+
+## Architecture Philosophy
+
+### Autonomous AI Agents (NOT Simple Bots)
+
+Agents use advanced AI capabilities:
+
+1. **Chain-of-Thought Reasoning** - Multi-step thinking before decisions
+2. **Semantic Memory** - Remember past experiences (episodic memory)
+3. **Self-Reflection** - Learn from wins/losses
+4. **Forward Planning** - Create 24h scenario plans
+5. **Self-Adaptation** - Modify their own strategy weights
+
+### 8 Agent Personalities
+
+- **Technical Tom** (Conservative) - 70% technical, 2x leverage max
+- **Aggressive Alpha** (High Risk) - Balanced weights, 5x leverage
+- **Balanced Bob** - Equal weight to all signals
+- **Scalper Sam** - High frequency, 5min intervals
+- **Swing Steve** - Medium-term trends, 2h intervals
+- **News Ninja** - 60% news weight, reacts fast
+- **Whale Watcher** - 60% on-chain, follows smart money
+- **Contrarian Carl** - Anti-sentiment, fades the crowd
+
+## Key Features
+
+### Multi-User System
+
+- Each user creates their own agents
+- Isolated memory per agent
+- Shared "collective memory" across agents of same personality
+- Portfolio tracking per user/agent
+
+### Real Trading with Risk Management
+
+- Circuit breaker (stops after losses)
+- Position sizing (max 30-50% per trade)
+- Leverage limits (2x-5x based on personality)
+- Stop-loss/Take-profit orders
+- Paper trading mode
+
+### Data Sources
+
+**News & Sentiment**:
+
+- Twitter/X (optional, needs API key)
+- Reddit (r/CryptoCurrency, r/Bitcoin, r/ethereum)
+- CoinDesk professional journalism
+- Background worker fetches every 10 min
+
+**On-Chain Monitoring**:
+
+- Whale Alert (paid, all chains)
+- Blockchain.com (free, BTC only)
+- Etherscan (free, ETH/USDT)
+- Tracks large transfers (>$1M default)
+
+**Market Data**:
+
+- Real-time WebSocket from Bybit → ClickHouse
+- OHLCV candles (1m, 5m, 15m, 1h, 4h)
+- Technical indicators (RSI, MACD, Bollinger Bands)
+- Order book depth, funding rates
+
+### Validator Council (AI Consensus)
+
+- Multiple AI models vote on risky decisions
+- Requires 2/3 consensus (configurable)
+- Prevents overconfident mistakes
+- Used for high-leverage trades
+
+## Code Organization
+
+```
+internal/
+├── adapters/          # External integrations
+│   ├── ai/           # DeepSeek, Claude, OpenAI providers
+│   ├── exchange/     # Binance, Bybit via CCXT
+│   ├── news/         # Twitter, Reddit, CoinDesk
+│   ├── onchain/      # Whale Alert, Blockchain.com, Etherscan
+│   ├── market/       # ClickHouse market data repository
+│   ├── telegram/     # Telegram bot for control
+│   ├── redis/        # Distributed locks (Redlock)
+│   └── database/     # PostgreSQL connection
+├── agents/           # AI agent system (CORE)
+│   ├── manager.go              # Simple agent manager
+│   ├── manager_toolkit.go      # DEPRECATED - old agent files
+│   ├── agentic_manager.go      # NEW autonomous agent manager
+│   ├── cot_engine.go           # Chain-of-Thought reasoning
+│   ├── decision_engine.go      # AI decision making
+│   ├── memory.go               # Statistical learning (old)
+│   ├── semantic_memory.go      # Episodic memory (new)
+│   ├── reflection.go           # Post-trade learning
+│   ├── planner.go              # 24h forward planning
+│   ├── personalities.go        # 8 agent personalities
+│   ├── repository.go           # All DB operations (REPOSITORY PATTERN!)
+│   ├── validator_council.go    # Multi-AI consensus
+│   ├── toolkit*.go             # Agent tools (market analysis, news, etc)
+│   └── performance.go          # Performance tracking
+├── toolkit/          # Shared tools for agents
+├── workers/          # Background jobs
+│   ├── news_worker.go          # Fetch news every 10min
+│   ├── candles_worker.go       # Market data collection
+│   ├── onchain_worker.go       # Whale transaction monitoring
+│   ├── agent_recovery_worker.go # Restore agents after crash
+│   └── sentiment_aggregator.go # Aggregate sentiment scores
+├── risk/             # Risk management
+│   ├── circuit_breaker.go      # Stop after losses
+│   ├── position_sizer.go       # Calculate position sizes
+│   └── validator.go            # Trade validation
+├── sentiment/        # News sentiment analysis
+├── indicators/       # Technical indicators (RSI, MACD, etc)
+├── portfolio/        # Balance tracking
+├── reports/          # Performance reports
+└── health/           # K8s health checks
+
+pkg/
+├── models/           # Data structures
+│   ├── agent.go      # Agent, State, Decision
+│   └── agentic.go    # Reflection, Memory, Plan
+├── logger/           # Structured logging (zap)
+└── templates/        # AI prompt templates
+
+templates/            # Prompt templates for AI
+├── agentic/          # Chain-of-Thought, reflection prompts
+├── validators/       # Validator council prompts
+├── reports/          # Report generation
+└── telegram/         # Telegram message templates
+```
+
+## Database Architecture
+
+**PostgreSQL Tables** (migrations/000xxx\_\*.up.sql):
+
+- `users`, `exchanges` - User accounts
+- `agent_configs`, `agent_states` - Agent configuration & state
+- `agent_decisions` - Decision history with reasoning
+- `agent_semantic_memories` - Episodic memory with embeddings
+- `agent_reflections` - Post-trade reflections
+- `agent_trading_plans` - 24h forward plans
+- `agent_collective_memories` - Shared wisdom across agents
+- `news_cache` - Cached news articles
+- `sentiment_scores` - Aggregated sentiment
+- `onchain_transactions` - Whale movements
+- `trades`, `positions` - Trading history
+
+**ClickHouse** (optional):
+
+- `ohlcv_candles` - High-performance time-series for market data
+- Falls back to PostgreSQL if unavailable
+
+## Coding Standards
+
+### CRITICAL RULES:
+
+1. **REPOSITORY PATTERN ONLY**
+
+   - ❌ NEVER write raw SQL in components/services
+   - ✅ ALWAYS use repository methods
+   - Location: `internal/agents/repository.go`, `internal/*/repository.go`
+
+2. **UUID Primary Keys**
+
+   - All tables use UUID, not integer IDs
+   - Use `uuid.New()` for new records
+
+3. **No Direct AI Calls from Components**
+
+   - Use `ai.Provider` interface
+   - Template rendering via `templates.Manager`
+
+4. **Distributed Locks for K8s**
+
+   - Use Redis Redlock for agent coordination
+   - Prevents duplicate agents in multi-pod setup
+
+5. **Structured Logging**
+
+   - Use `logger.Info/Warn/Error` with zap fields
+   - Never use `fmt.Println` in production code
+
+6. **Error Handling**
+
+   - Always wrap errors with context: `fmt.Errorf("failed to X: %w", err)`
+   - Check if context is canceled before operations
+
+7. **Graceful Shutdown with Chain-of-Thought Resume**
+   - Listen for SIGTERM/SIGINT
+   - Chain-of-Thought saves checkpoint on interruption
+   - Agent resumes thinking from checkpoint after restart
+   - Checkpoint includes ThinkingState + history
+   - K8s gives 30s terminationGracePeriodSeconds
+   - See `migrations/000010_reasoning_checkpoints.up.sql`
+
+## Testing Strategy
+
+- Unit tests: Mock all external dependencies
+- Integration tests: Real PostgreSQL + testcontainers
+- Paper trading: Required before live (at least 1 month)
+- Location: `test/`, `*_test.go` files
+
+## Deployment
+
+**Local Development**:
+
+```bash
+make setup      # Create DB + migrations + .env
+make build      # Build binary
+make paper      # Run in paper trading mode
+```
+
+**Docker**:
+
+```bash
+docker-compose up -d
+```
+
+**Kubernetes**:
+
+- Health checks on `/health` (readiness) and `/ready` (liveness)
+- Distributed locks via Redis prevent duplicate agents
+- Pod restarts recover agents automatically
+
+## Cost Estimation
+
+**Per agent per day** (30min intervals):
+
+- DeepSeek: ~$0.15/day (recommended for scalpers)
+- Claude: ~$0.80/day (best for reflection)
+- OpenAI: ~$1.20/day
+
+## Performance Metrics
+
+- Decision latency: 2-3s (simple) or 15-25s (Chain-of-Thought)
+- Memory per agent: ~15MB RAM
+- Database: ~1MB per agent per month
+- Handles 10-50 users on single server
+
+## Security Notes
+
+- API keys stored in PostgreSQL (TODO: encrypt at rest)
+- Isolated by user_id (no cross-user data access)
+- Telegram bot checks user registration
+- Never commit `.env` file
+
+## Documentation
+
+- `docs/AGENTS.md` - Full agent system guide
+- `docs/ARCHITECTURE.md` - System architecture
+- `docs/MIGRATIONS.md` - Database migrations guide
+- `docs/QUICK_START.md` - 5-minute setup
+- `docs/NEWS_INTEGRATION.md` - News system
+- `docs/ONCHAIN_MONITORING.md` - Whale tracking
+
+---
+
+## IMPORTANT FOR AI ASSISTANT:
+
+### DO NOT:
+
+- ❌ Create .md docs without permission
+- ❌ Write raw SQL queries in code
+- ❌ Use `fmt.Println` for logging
+- ❌ Open rails console (wrong project!)
+- ❌ Use Russian in code/comments/README
+
+### ALWAYS:
+
+- ✅ Use repository pattern for database
+- ✅ Use `logger.*` with zap fields
+- ✅ Follow Go conventions (CamelCase, package names)
+- ✅ Add context to errors
+- ✅ Write comments in English
+- ✅ Respond to user in Russian (but code in English!)
+
+### When Making Changes:
+
+1. Understand what part of system you're modifying (agent, adapter, worker?)
+2. Check if repository method exists, create if needed
+3. Use interfaces for testability
+4. Add logs for important operations
+5. Consider graceful shutdown implications
+6. Think about K8s multi-pod scenarios (use locks if needed)
+
+This is a **production trading system** managing real money. Code quality and safety are critical!

@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -30,6 +31,7 @@ import (
 	"github.com/selivandex/trader-bot/internal/sentiment"
 	"github.com/selivandex/trader-bot/internal/users"
 	"github.com/selivandex/trader-bot/internal/workers"
+	"github.com/selivandex/trader-bot/pkg/embeddings"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 	"github.com/selivandex/trader-bot/pkg/templates"
@@ -102,18 +104,51 @@ func run(ctx context.Context) error {
 		logger.Info("⚠️ Market repository using PostgreSQL fallback")
 	}
 
-	// Create OpenAI client for embeddings (used by agents and news)
-	var embeddingClient *openai.Client
+	// Create unified embedding client (used by agents and news)
+	var embeddingClient *embeddings.Client
 	if cfg.AI.OpenAI.APIKey != "" {
-		embeddingClient = openai.NewClient(cfg.AI.OpenAI.APIKey)
-		logger.Info("✅ OpenAI embeddings client initialized")
+		openaiClient := openai.NewClient(cfg.AI.OpenAI.APIKey)
+		embeddingClient = embeddings.NewClient(embeddings.Config{
+			OpenAIClient: openaiClient,
+			RedisClient:  redisClient,
+			Model:        openai.AdaEmbeddingV2,
+		})
+		logger.Info("✅ Unified embedding client initialized (7-day cache)")
 	} else {
-		logger.Warn("⚠️ OpenAI API key not set - using fallback embeddings (lower quality)")
+		logger.Warn("⚠️ OpenAI API key not set - semantic search will be unavailable")
 	}
 
-	newsAggregator, newsCache, err := initNewsSystem(ctx, cfg, db, aiProviders, embeddingClient)
+	newsAggregator, newsCache, err := initNewsSystem(ctx, cfg, db, aiProviders, embeddingClient, redisClient)
 	if err != nil {
 		return err
+	}
+
+	// Check embedding coverage before starting agents
+	if newsCache != nil && embeddingClient != nil {
+		coverage, err := newsCache.GetEmbeddingCoverage(ctx, 24*time.Hour)
+		if err != nil {
+			logger.Warn("failed to check embedding coverage", zap.Error(err))
+		} else {
+			logger.Info("📊 News embedding coverage",
+				zap.Float64("coverage_pct", coverage*100),
+				zap.String("status", func() string {
+					if coverage >= 0.80 {
+						return "✅ Good"
+					} else if coverage >= 0.50 {
+						return "⚠️ Low"
+					}
+					return "❌ Critical"
+				}()),
+			)
+
+			// Warn if coverage too low (but don't fail - might be first startup)
+			if coverage < 0.50 && coverage > 0 {
+				logger.Warn("⚠️ Low news embedding coverage - semantic search quality degraded",
+					zap.Float64("coverage", coverage),
+					zap.String("hint", "Wait for news worker to process recent articles"),
+				)
+			}
+		}
 	}
 
 	// Start background workers
@@ -137,7 +172,11 @@ func run(ctx context.Context) error {
 	notifier := initTelegramSystem(cfg, repos.userRepo, allTemplates)
 
 	// Initialize and start agent system (embeddingClient already created above)
-	agenticManager := initAgenticSystem(ctx, cfg, db, redisClient, marketRepo, newsAggregator, newsCache, allTemplates, aiProviders, notifier, embeddingClient)
+	var chDBConn *sqlx.DB
+	if chDB != nil {
+		chDBConn = chDB.DB()
+	}
+	agenticManager := initAgenticSystem(ctx, cfg, db, chDBConn, redisClient, marketRepo, newsAggregator, newsCache, allTemplates, aiProviders, notifier, embeddingClient)
 
 	// Start health server
 	healthServer := startHealthServer(cfg, db, redisClient, agenticManager, len(aiProviders))
@@ -219,6 +258,7 @@ func initAgenticSystem(
 	ctx context.Context,
 	cfg *config.Config,
 	db *database.DB,
+	chDB *sqlx.DB, // ClickHouse for metrics
 	redisClient *redisAdapter.Client,
 	marketRepo *market.Repository,
 	newsAggregator *news.Aggregator,
@@ -226,11 +266,12 @@ func initAgenticSystem(
 	templateManager *templates.Manager,
 	aiProviders []ai.Provider,
 	notifier agents.Notifier,
-	embeddingClient *openai.Client,
+	embeddingClient *embeddings.Client,
 ) *agents.AgenticManager {
 	lockFactory := redisClient.GetLockFactory()
 	agenticManager := agents.NewAgenticManager(
 		db.DB(),
+		chDB, // ClickHouse for tool metrics
 		redisClient,
 		lockFactory,
 		marketRepo,
@@ -372,7 +413,7 @@ func initAIProviders(cfg *config.Config) ([]ai.Provider, error) {
 }
 
 // initNewsSystem initializes news aggregation and analysis
-func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, aiProviders []ai.Provider, embeddingClient *openai.Client) (*news.Aggregator, *news.Cache, error) {
+func initNewsSystem(ctx context.Context, cfg *config.Config, db *database.DB, aiProviders []ai.Provider, embeddingClient *embeddings.Client, redisClient *redisAdapter.Client) (*news.Aggregator, *news.Cache, error) {
 	if !cfg.News.Enabled {
 		logger.Info("news system disabled")
 		return nil, nil, nil

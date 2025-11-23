@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS agent_semantic_memories (
     outcome TEXT NOT NULL,            -- "Profit +3.2%, good call"
     lesson TEXT NOT NULL,             -- "News-driven drops are good short opportunities"
     embedding vector(1536) NOT NULL,  -- OpenAI ada-002 embedding (1536 dimensions)
+    embedding_version INTEGER NOT NULL DEFAULT 1, -- 1=ada-002, 2=ada-003, etc (for future migrations)
     importance DECIMAL(5, 4) NOT NULL DEFAULT 0.5, -- 0.0 - 1.0
     access_count INTEGER NOT NULL DEFAULT 0,
     last_accessed TIMESTAMP,
@@ -25,11 +26,12 @@ CREATE INDEX idx_agent_semantic_memories_created_at ON agent_semantic_memories(c
 CREATE INDEX idx_agent_semantic_memories_access_count ON agent_semantic_memories(access_count DESC);
 
 -- 🚀 Vector index for fast semantic similarity search (cosine distance)
--- IVFFlat index: splits vector space into ~100 clusters for O(sqrt(n)) search
--- vector_cosine_ops: optimized for cosine similarity (1 - cosine_distance)
+-- HNSW index: faster than IVFFlat for read-heavy workloads
+-- m = 16: number of connections per layer (higher = better recall, more memory)
+-- ef_construction = 64: quality of index construction (higher = better quality, slower build)
 CREATE INDEX idx_agent_semantic_memories_embedding ON agent_semantic_memories 
-USING ivfflat (embedding vector_cosine_ops) 
-WITH (lists = 100);
+USING hnsw (embedding vector_cosine_ops) 
+WITH (m = 16, ef_construction = 64);
 
 -- Reasoning Sessions (tracks agent's thinking process)
 CREATE TABLE IF NOT EXISTS agent_reasoning_sessions (

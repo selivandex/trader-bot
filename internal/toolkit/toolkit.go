@@ -80,6 +80,9 @@ type AgentToolkit interface {
 	// GetRelatedNews gets all news in same cluster (same event from different sources)
 	GetRelatedNews(ctx context.Context, clusterID string) ([]models.NewsItem, error)
 
+	// FindNewsForMemory finds current news related to a past memory
+	FindNewsForMemory(ctx context.Context, memoryID string, hours time.Duration, limit int) ([]models.NewsItem, error)
+
 	// GetNewsWithMemoryContext combines news search with related personal memories
 	// Returns formatted text with news + agent's past experiences + lessons learned
 	GetNewsWithMemoryContext(ctx context.Context, newsQuery string, since time.Duration, newsLimit int) (string, error)

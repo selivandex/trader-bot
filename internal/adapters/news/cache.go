@@ -3,13 +3,12 @@ package news
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 
+	"github.com/selivandex/trader-bot/pkg/embeddings"
 	"github.com/selivandex/trader-bot/pkg/logger"
 	"github.com/selivandex/trader-bot/pkg/models"
 )
@@ -17,11 +16,11 @@ import (
 // Cache handles news caching in database with semantic search capabilities
 type Cache struct {
 	repo            *Repository
-	embeddingClient *openai.Client // For generating embeddings
+	embeddingClient *embeddings.Client // Unified embedding client
 }
 
 // NewCache creates new news cache
-func NewCache(repo *Repository, embeddingClient *openai.Client) *Cache {
+func NewCache(repo *Repository, embeddingClient *embeddings.Client) *Cache {
 	return &Cache{
 		repo:            repo,
 		embeddingClient: embeddingClient,
@@ -129,19 +128,25 @@ func contains(s, substr string) bool {
 
 // SearchNewsSemantics performs semantic search using embeddings
 // Finds news by meaning, not just keywords
+// Returns error if embeddings unavailable (no silent fallback)
 func (c *Cache) SearchNewsSemantics(
 	ctx context.Context,
 	semanticQuery string,
 	since time.Duration,
 	limit int,
 ) ([]models.NewsItem, error) {
+	if c.embeddingClient == nil {
+		return nil, fmt.Errorf("semantic search unavailable: embedding client not configured (set OPENAI_API_KEY)")
+	}
+
 	// Generate embedding for query
-	queryEmbedding, err := c.generateEmbedding(ctx, semanticQuery)
+	queryEmbedding, err := c.embeddingClient.Generate(ctx, semanticQuery)
 	if err != nil {
-		logger.Warn("failed to generate query embedding, falling back to keyword search",
+		logger.Error("⚠️ SEMANTIC SEARCH UNAVAILABLE - embedding generation failed",
 			zap.Error(err),
+			zap.String("query", semanticQuery),
 		)
-		return c.SearchNews(ctx, semanticQuery, since, limit)
+		return nil, fmt.Errorf("semantic search unavailable: %w", err)
 	}
 
 	// Vector similarity search
@@ -158,14 +163,33 @@ func (c *Cache) SearchNewsSemantics(
 	return news, nil
 }
 
-// GenerateEmbeddingsForNews generates embeddings for news items
+// GetRepo returns underlying repository for direct access to low-level methods
+func (c *Cache) GetRepo() *Repository {
+	return c.repo
+}
+
+// GenerateEmbeddingsForNews generates embeddings for news items in batch
 // Called by news worker after AI evaluation
+// Uses batch API for 10x speed improvement
 func (c *Cache) GenerateEmbeddingsForNews(ctx context.Context, news []*models.NewsItem) error {
 	if len(news) == 0 {
 		return nil
 	}
 
+	if c.embeddingClient == nil {
+		return fmt.Errorf("embedding client not configured - cannot generate embeddings (set OPENAI_API_KEY)")
+	}
+
+	// Collect texts that need embeddings
+	var textsToEmbed []string
+	var newsNeedingEmbedding []*models.NewsItem
+
 	for _, item := range news {
+		// Skip if already has embedding
+		if len(item.Embedding) > 0 {
+			continue
+		}
+
 		// Combine title + content for embedding
 		text := item.Title
 		if item.Content != "" {
@@ -177,24 +201,32 @@ func (c *Cache) GenerateEmbeddingsForNews(ctx context.Context, news []*models.Ne
 			text = text[:30000]
 		}
 
-		embedding, err := c.generateEmbedding(ctx, text)
-		if err != nil {
-			logger.Warn("failed to generate embedding for news",
-				zap.String("news_id", item.ID),
-				zap.Error(err),
-			)
-			// Use fallback
-			embedding = c.generateSimpleEmbedding(text)
-			item.EmbeddingModel = "fallback"
-		} else {
-			item.EmbeddingModel = "ada-002"
-		}
-
-		item.Embedding = embedding
+		textsToEmbed = append(textsToEmbed, text)
+		newsNeedingEmbedding = append(newsNeedingEmbedding, item)
 	}
 
-	logger.Debug("generated embeddings for news batch",
-		zap.Int("count", len(news)),
+	if len(textsToEmbed) == 0 {
+		return nil // All items already have embeddings
+	}
+
+	logger.Debug("generating embeddings in batch",
+		zap.Int("batch_size", len(textsToEmbed)),
+	)
+
+	// Use unified batch generation
+	embeddings, err := c.embeddingClient.GenerateBatch(ctx, textsToEmbed)
+	if err != nil {
+		return fmt.Errorf("batch embedding generation failed: %w", err)
+	}
+
+	// Assign embeddings back to news items
+	for i, embedding := range embeddings {
+		newsNeedingEmbedding[i].Embedding = embedding
+		newsNeedingEmbedding[i].EmbeddingModel = "ada-002"
+	}
+
+	logger.Info("embeddings generated successfully",
+		zap.Int("count", len(embeddings)),
 	)
 
 	return nil
@@ -287,57 +319,34 @@ func (c *Cache) GetClusterNews(ctx context.Context, clusterID string) ([]models.
 	return c.repo.GetClusterNews(ctx, clusterID)
 }
 
-// ============ EMBEDDING GENERATION ============
+// ============ EMBEDDING COVERAGE MONITORING ============
 
-// generateEmbedding creates semantic embedding using OpenAI API
-func (c *Cache) generateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	// Use OpenAI embeddings if available
-	if c.embeddingClient != nil {
-		resp, err := c.embeddingClient.CreateEmbeddings(
-			ctx,
-			openai.EmbeddingRequest{
-				Model: openai.AdaEmbeddingV2, // text-embedding-ada-002 (1536 dims)
-				Input: []string{text},
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(resp.Data) == 0 {
-			return nil, fmt.Errorf("no embedding data returned")
-		}
-
-		return resp.Data[0].Embedding, nil
+// GetEmbeddingCoverage calculates percentage of news with embeddings in time window
+// Used for health checks and monitoring
+func (c *Cache) GetEmbeddingCoverage(ctx context.Context, since time.Duration) (float64, error) {
+	news, err := c.repo.GetRecentNews(ctx, since, 1000)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get recent news: %w", err)
 	}
 
-	// No client configured - use fallback
-	return c.generateSimpleEmbedding(text), nil
-}
-
-// generateSimpleEmbedding creates fallback embedding (1536 dims for compatibility)
-func (c *Cache) generateSimpleEmbedding(text string) []float32 {
-	// Simple bag-of-words embedding (1536 dimensions to match OpenAI)
-	embedding := make([]float32, 1536)
-
-	// Hash-based simple embedding
-	for i, char := range text {
-		idx := (int(char) + i) % 1536
-		embedding[idx] += 1.0
+	if len(news) == 0 {
+		return 1.0, nil // No news = 100% coverage
 	}
 
-	// Normalize
-	norm := float32(0.0)
-	for _, v := range embedding {
-		norm += v * v
-	}
-	norm = float32(math.Sqrt(float64(norm)))
-
-	if norm > 0 {
-		for i := range embedding {
-			embedding[i] /= norm
+	embeddedCount := 0
+	for _, item := range news {
+		if len(item.Embedding) > 0 {
+			embeddedCount++
 		}
 	}
 
-	return embedding
+	coverage := float64(embeddedCount) / float64(len(news))
+
+	logger.Debug("embedding coverage calculated",
+		zap.Int("total", len(news)),
+		zap.Int("with_embeddings", embeddedCount),
+		zap.Float64("coverage", coverage),
+	)
+
+	return coverage, nil
 }
